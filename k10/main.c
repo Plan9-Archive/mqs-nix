@@ -146,6 +146,7 @@ main(void)
 
 	fmtinit();
 	print("\nnix\n");
+	print("\nhello world\n");
 
 	m->perf.period = 1;
 	hz = archhz();
