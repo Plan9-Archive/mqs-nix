@@ -85,7 +85,7 @@ procsched(Proc *p)
 	pm = p->mp;
 	if(pm == nil)
 		pm = m;
-	if(pm->sch == nil) /* should never fall through if they are statically allocated */
+	if(&pm->sch == nil) /* should never fall through if they are statically allocated */
 		setmachsched(pm);
 	return &pm->sch;
 }
@@ -354,7 +354,7 @@ updatecpu(Proc *p)
 
 	if(n == 0)
 		return;
-	if(m->sch == nil)	/* may happen during boot */
+	if(&m->sch == nil)	/* may happen during boot */
 		return;
 	D = m->sch.schedgain*HZ*Scaling;
 	if(n > D)
@@ -618,7 +618,7 @@ steal(void)
 	for(i = 0; i < Nsched; i++){
 		last = (start+i)%Nsched;
 		sch = &run[last];
-		if(sch == m->sch || sch->nmach == 0 || !overloaded(sch))
+		if(sch == &m->sch || sch->nmach == 0 || !overloaded(sch))
 			continue;
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			for(p = rq->head; p != nil; p = p->rnext)
