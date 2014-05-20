@@ -244,7 +244,7 @@ donate(Proc *p)
 			continue;
 		if(mp->sch == m->sch)
 			continue;
-		if(mp->sch->nrdy > m->sch->nrdy)/* more loaded than us, ignore */
+		if(mp->sch.nrdy > m->sch.nrdy)/* more loaded than us, ignore */
 			continue;
 		p->mp = mp;
 		p->color = machcolor(mp);

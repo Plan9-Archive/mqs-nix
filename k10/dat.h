@@ -205,7 +205,7 @@ struct Mach
 	int	cpumhz;
 	u64int	rdtsc;
 
-	Sched*	sch;			/* scheduler used */
+	Sched	sch;			/* scheduler used */
 
 	MFPU;
 };

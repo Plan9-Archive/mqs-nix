@@ -29,6 +29,7 @@ static Ref pidalloc;
  * try to use a different scheduler per color
  */
 Sched run[Nsched];
+//Sched run[sys->nmach];
 
 struct Procalloc procalloc;
 
@@ -73,7 +74,7 @@ setmachsched(Mach *mp)
 		iprint("cpu%d: unknown color\n", mp->machno);
 		color = 0;
 	}
-	mp->sch = &run[color%Nsched];
+//	mp->sch = &run[color%Nsched];
 }
 
 Sched*
@@ -84,9 +85,9 @@ procsched(Proc *p)
 	pm = p->mp;
 	if(pm == nil)
 		pm = m;
-	if(pm->sch == nil)
+	if(pm->sch == nil) /* should never fall through if they are statically allocated */
 		setmachsched(pm);
-	return pm->sch;
+	return &pm->sch;
 }
 
 /*
@@ -97,8 +98,11 @@ procinit0(void)
 {
 	int i;
 
-	for(i = 0; i < Nsched; i++)
+/*	for(i = 0; i < Nsched; i++)
 		run[i].schedgain = 30;
+*/
+	for (i = 0; i < sys->nmach; i++) 
+	    sys->machptr[i]->sch.schedgain = 30;
 
 }
 
@@ -111,7 +115,7 @@ schedinit(void)		/* never returns */
 	Edf *e;
 
 	m->inidle = 1;
-	ainc(&m->sch->nmach);
+	ainc(&m->sch.nmach);
 
 	setlabel(&m->sched);
 	if(up) {
@@ -182,7 +186,7 @@ sched(void)
 	Proc *p;
 	Sched *sch;
 
-	sch = m->sch;
+	sch = &m->sch;
 	if(m->ilockdepth)
 		panic("cpu%d: ilockdepth %d, last lock %#p at %#p, sched called from %#p",
 			m->machno,
@@ -247,13 +251,13 @@ sched(void)
 int
 anyready(void)
 {
-	return m->sch->runvec;
+	return m->sch.runvec;
 }
 
 int
 anyhigher(void)
 {
-	return m->sch->runvec & ~((1<<(m->proc->priority+1))-1);
+	return m->sch.runvec & ~((1<<(m->proc->priority+1))-1);
 }
 
 /*
@@ -352,7 +356,7 @@ updatecpu(Proc *p)
 		return;
 	if(m->sch == nil)	/* may happen during boot */
 		return;
-	D = m->sch->schedgain*HZ*Scaling;
+	D = m->sch.schedgain*HZ*Scaling;
 	if(n > D)
 		n = D;
 
@@ -541,7 +545,7 @@ rebalance(void)
 	Schedq *rq;
 	Proc *p;
 
-	sch = m->sch;
+	sch = &m->sch;
 	t = m->ticks;
 	if(t - sch->balancetime < HZ)
 		return;
@@ -640,7 +644,7 @@ runproc(void)
 	int i;
 
 	start = perfticks();
-	sch = m->sch;
+	sch = &m->sch;
 	/* cooperative scheduling until the clock ticks */
 	if((p=m->readied) && p->mach==0 && p->state==Ready
 	&& sch->runq[Nrq-1].head == nil && sch->runq[Nrq-2].head == nil
@@ -1673,7 +1677,7 @@ accounttime(void)
 	Proc *p;
 	uvlong n, per;
 
-	sch = m->sch;
+	sch = &m->sch;
 	p = m->proc;
 	if(p) {
 		if(m->machno == 0)
@@ -1717,7 +1721,7 @@ accounttime(void)
 void
 halt(void)
 {
-	if(m->sch->nrdy != 0)
+	if(m->sch.nrdy != 0)
 		return;
 	hardhalt();
 }

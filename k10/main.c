@@ -140,7 +140,6 @@ main(void)
 	sys->nmach = 1;
 	fmtinit();
 	print("\nnix\n");
-	print("\nhello world\n");
 
 	m->perf.period = 1;
 	hz = archhz();
