@@ -869,6 +869,8 @@ procread(Chan *c, void *va, long n, vlong off)
 		return readstr(offset, va, n, statbuf);
 
 	case Qmach:
+		if (p->mach == 0)  
+		    return 0;
 		snprint(statbuf, sizeof statbuf, "%d\n", p->mach->machno);
 		return readstr(offset, va, n, statbuf);
 
