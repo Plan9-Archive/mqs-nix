@@ -980,7 +980,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 					(mp->perf.avg_inintr*100)/mp->perf.period,
 					NUMSIZE);
 				bp += NUMSIZE;
-				readnum(0, bp, NUMSIZE, (mp->sch - run), NUMSIZE);
+				readnum(0, bp, NUMSIZE, (&mp->sch - run), NUMSIZE);
 				bp += NUMSIZE;
 				*bp++ = '\n';
 			}

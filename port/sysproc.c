@@ -240,9 +240,9 @@ donate(Proc *p)
 	for(i = 0; i < MACHMAX; i++){
 		mach = i;
 		mp = sys->machptr[mach];
-		if(mp == m || mp == nil || mp->online == 0 || mp->sch == nil)
+		if(mp == m || mp == nil || mp->online == 0 || &mp->sch == nil)
 			continue;
-		if(mp->sch == m->sch)
+		if(&mp->sch == &m->sch)
 			continue;
 		if(mp->sch.nrdy > m->sch.nrdy)/* more loaded than us, ignore */
 			continue;
