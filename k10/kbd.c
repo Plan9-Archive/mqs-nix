@@ -33,10 +33,11 @@ enum {
 	Num=		Spec|0x65,
 	Middle=		Spec|0x66,
 	Altgr=		Spec|0x67,
+	Gui=		Spec|0x68,
 	Kmouse=		Spec|0x100,
 	No=		0x00,		/* peter */
 
-	Home=		KF|13,
+	Home=		KF|13,		/* failure of vision; collides with f keys */
 	Up=		KF|14,
 	Pgup=		KF|15,
 	Print=		KF|16,
@@ -74,8 +75,8 @@ Rune kbtab[Nscan] =
 [0x48]	'8',	'9',	'-',	'4',	'5',	'6',	'+',	'1',
 [0x50]	'2',	'3',	'0',	'.',	No,	No,	No,	KF|11,
 [0x58]	KF|12,	No,	No,	No,	No,	No,	No,	No,
-[0x60]	No,	No,	No,	No,	No,	No,	No,	No,
-[0x68]	No,	No,	No,	No,	No,	No,	No,	No,
+[0x60]	No,	No,	No,	No,	KF|13,	KF|14,	KF|15,	KF|16,
+[0x68]	KF|17,	KF|18,	KF|19,	KF|20,	KF|21,	KF|22,	KF|23,	KF|24,
 [0x70]	No,	No,	No,	No,	No,	No,	No,	No,
 [0x78]	No,	View,	No,	Up,	No,	No,	No,	No,
 };
@@ -94,8 +95,8 @@ Rune kbtabshift[Nscan] =
 [0x48]	'8',	'9',	'-',	'4',	'5',	'6',	'+',	'1',
 [0x50]	'2',	'3',	'0',	'.',	No,	No,	No,	KF|11,
 [0x58]	KF|12,	No,	No,	No,	No,	No,	No,	No,
-[0x60]	No,	No,	No,	No,	No,	No,	No,	No,
-[0x68]	No,	No,	No,	No,	No,	No,	No,	No,
+[0x60]	No,	No,	No,	No,	KF|13,	KF|14,	KF|15,	KF|16,
+[0x68]	KF|17,	KF|18,	KF|19,	KF|20,	KF|21,	KF|22,	KF|23,	KF|24,
 [0x70]	No,	No,	No,	No,	No,	No,	No,	No,
 [0x78]	No,	Up,	No,	Up,	No,	No,	No,	No,
 };
@@ -113,7 +114,7 @@ Rune kbtabesc1[Nscan] =
 [0x40]	No,	No,	No,	No,	No,	No,	Break,	Home,
 [0x48]	Up,	Pgup,	No,	Left,	No,	Right,	No,	End,
 [0x50]	Down,	Pgdown,	Ins,	Del,	No,	No,	No,	No,
-[0x58]	No,	No,	No,	No,	No,	No,	No,	No,
+[0x58]	No,	No,	No,	Gui,	Gui,	No,	No,	No,
 [0x60]	No,	No,	No,	No,	No,	No,	No,	No,
 [0x68]	No,	No,	No,	No,	No,	No,	No,	No,
 [0x70]	No,	No,	No,	No,	No,	No,	No,	No,
@@ -174,8 +175,8 @@ enum
 static Queue *kbdq;
 
 int mouseshifted;
+int kdebug;
 void (*kbdmouse)(int);
-static int nokbd = 1;
 
 static Lock i8042lock;
 static uchar ccc;
@@ -222,7 +223,7 @@ i8042reset(void)
 	ushort *s;
 	int i, x;
 
-	if(nokbd)
+	if(sys->noi8042kbd)
 		return;
 
 	s = KADDR(0x472);
@@ -330,7 +331,7 @@ setleds(Kbscan *kbscan)
 {
 	int leds;
 
-	if(nokbd)
+	if(sys->noi8042kbd)
 		return;
 	leds = 0;
 	if(kbscan->scroll)
@@ -342,6 +343,7 @@ setleds(Kbscan *kbscan)
 	ilock(&i8042lock);
 	outready();
 	outb(Data, 0xed);		/* talk directly to kbd, not ctlr */
+	microdelay(1);
 	outready();
 	if(inready() == 0)
 		inb(Data);
@@ -364,6 +366,8 @@ kbdputsc(int c, int scanno)
 
 	kbscan = kbscans + scanno;
 
+	if(kdebug)
+		print("%d: sc %x ms %d\n", scanno, c, mouseshifted);
 	/*
 	 *  e0's is the first of a 2 character sequence, e1 the first
 	 *  of a 3 character sequence (on the safari)
@@ -376,7 +380,7 @@ kbdputsc(int c, int scanno)
 		return;
 	}
 
-	keyup = c&0x80;
+	keyup = c & 0x80;
 	c &= 0x7f;
 
 	if(kbscan->esc1){
@@ -508,6 +512,13 @@ kbdputsc(int c, int scanno)
 			if(kbdmouse)
 				kbdmouse(kbscan->buttons);
 			return;
+		case KF|11:
+			print("kbd debug on, F12 turns it off\n");
+			kdebug = 1;
+			break;
+		case KF|12:
+			kdebug = 0;
+			break;
 		}
 	}
 	kbdputc(kbdq, c);
@@ -560,13 +571,13 @@ i8042auxenable(void (*putc)(int, int))
 
 	ilock(&i8042lock);
 	if(outready() < 0)
-		print(err);
+		iprint(err);
 	outb(Cmd, 0x60);			/* write control register */
 	if(outready() < 0)
-		print(err);
+		iprint(err);
 	outb(Data, ccc);
 	if(outready() < 0)
-		print(err);
+		iprint(err);
 	outb(Cmd, 0xA8);			/* auxiliary device enable */
 	if(outready() < 0){
 		iunlock(&i8042lock);
@@ -591,9 +602,24 @@ outbyte(int port, int c)
 }
 
 void
+failkbd(void)
+{
+	sys->noi8042kbd = 1;
+	iofree(Data);
+	iofree(Cmd);
+	print(initfailed);
+}
+
+void
 kbdinit(void)
 {
 	int c, try;
+
+	if(sys->noi8042kbd)
+		return;
+
+	ioalloc(Data, 1, 0, "kbd data");
+	ioalloc(Cmd, 1, 0, "kbd cmd");
 
 	/* wait for a quiescent controller */
 	try = 1000;
@@ -603,7 +629,7 @@ kbdinit(void)
 		delay(1);
 	}
 	if (try <= 0) {
-		print(initfailed);
+		failkbd();
 		return;
 	}
 
@@ -619,11 +645,9 @@ kbdinit(void)
 	ccc &= ~Ckbddis;
 	ccc |= Csf | Ckbdint | Cscs1;
 	if(outready() < 0) {
-		print(initfailed);
+		failkbd();
 		return;
 	}
-
-	nokbd = 0;
 
 	/* disable mouse */
 	if (outbyte(Cmd, 0x60) < 0 || outbyte(Data, ccc) < 0)
@@ -642,14 +666,17 @@ kbdenable(void)
 		panic("kbdinit");
 	qnoblock(kbdq, 1);
 	addkbdq(kbdq, -1);
+}
 
-	ioalloc(Data, 1, 0, "kbd");
-	ioalloc(Cmd, 1, 0, "kbd");
+void
+i8042kbdenable(void)
+{
+	if(!sys->noi8042kbd){
+		intrenable(IrqKBD, i8042intr, 0, BUSUNKNOWN, "kbd");
 
-	intrenable(IrqKBD, i8042intr, 0, BUSUNKNOWN, "kbd");
-
-	kbscans[Int].num = 0;
-	setleds(kbscans + Int);
+		kbscans[Int].num = 0;
+		setleds(kbscans + Int);
+	}
 }
 
 void
@@ -681,10 +708,10 @@ kbdputmap(ushort m, ushort scanc, Rune r)
 int
 kbdgetmap(uint offset, int *t, int *sc, Rune *r)
 {
+	if ((int)offset < 0)
+		error(Ebadarg);
 	*t = offset/Nscan;
 	*sc = offset%Nscan;
-	if(*t < 0 || *sc < 0)
-		error(Ebadarg);
 	switch(*t) {
 	default:
 		return 0;

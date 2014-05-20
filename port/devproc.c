@@ -233,7 +233,7 @@ procgen(Chan *c, char *name, Dirtab *tab, int, int s, Dir *dp)
 			if(s < 0)
 				return -1;
 		}
-		else if(s >= conf.nproc)
+		else if(s >= sys->nproc)
 			return -1;
 
 		if((p = psincref(s)) == nil || (pid = p->pid) == 0)
@@ -343,7 +343,7 @@ proctracepid(Proc *p)
 static void
 procinit(void)
 {
-	if(conf.nproc >= (SLOTMASK>>QSHIFT) - 1)
+	if(sys->nproc >= (SLOTMASK>>QSHIFT) - 1)
 		print("warning: too many procs for devproc\n");
 	addclock0link((void (*)(void))profclock, 113);	/* Relative prime to HZ */
 }
@@ -610,7 +610,7 @@ procqidwidth(Chan *c)
 {
 	char buf[32];
 
-	return sprint(buf, "%lud", c->qid.vers);
+	return snprint(buf, sizeof buf, "%lud", c->qid.vers);
 }
 
 int
@@ -1252,8 +1252,10 @@ procwrite(Chan *c, void *va, long n, vlong off)
 			p->noteid = id;
 			break;
 		}
+		if(strcmp(p->user, "none") == 0 && !iseve())
+			error(Eperm);
 		for(i = 0; (t = psincref(i)) != nil; i++){
-			if(t->state == Dead || t->noteid != id){
+			if(t->state == Dead || t->kp || t->noteid != id){
 				psdecref(t);
 				continue;
 			}
@@ -1552,7 +1554,6 @@ procctlreq(Proc *p, char *va, int n)
 		break;
 	case CMwired:
 		procwired(p, atoi(cb->f[1]));
-		sched();
 		break;
 	case CMtrace:
 		switch(cb->nf){

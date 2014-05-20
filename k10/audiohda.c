@@ -1298,7 +1298,7 @@ enum {
 	Nvol,
 };
 
-static Volume voltab[] = {
+static Volume voltab[Nvol+1] = {
 [Vmaster]	"master",	0,	0x7f,	Stereo,		0,
 [Vspeed]	"speed",	0,	0,	Absolute,	0,
 [Vbits]		"bits",	0,	0,	Absolute,	0,
@@ -1460,7 +1460,7 @@ hdastatus(Audio *adev, void *a, long n, vlong)
 	}
 
 	s = seprint(s, e, "path ");
-	for(w=ctlr->amp; w != nil; w = w->from){
+	for(w = ctlr->amp; w != nil; w = w->from){
 		s = seprint(s, e, "%3d %s %ux %ux %ux", w->id.nid, widtype[w->type&7], 
 			w->cap, w->pin, w->pincap);
 		if(w == ctlr->src)
@@ -1567,6 +1567,8 @@ hdamatch(Pcidev *p)
 		case 0x8086<<16 | 0x3b56:	/* Intel P55 (Ibex Peak) */
 		case 0x8086<<16 | 0x811b:	/* Intel SCH Poulsbo */
 		case 0x8086<<16 | 0x080a:	/* Intel SCH Oaktrail */
+		case 0x8086<<16 | 0x1c20:		/* Intel PCH */
+		case 0x8086<<16 | 0x1e20:	/* Intel (Thinkpad x230t) */
 
 		case 0x10de<<16 | 0x026c:	/* NVidia MCP51 untested */
 		case 0x10de<<16 | 0x0371:	/* NVidia MCP55 untested */
@@ -1584,6 +1586,7 @@ hdamatch(Pcidev *p)
 		case 0x1106<<16 | 0x3288:	/* VIA untested */
 		case 0x1039<<16 | 0x7502:	/* SIS untested */
 		case 0x10b9<<16 | 0x5461:	/* ULI untested */
+		case 0x15ad<<16 | 0x1977:	/* Vmware */
 
 			return p;
 		}
@@ -1676,6 +1679,8 @@ Found:
 	if(p->vid == 0x8086){
 		/* magic for Intel */
 		switch(p->did){
+		case 0x1c20:	/* PCH */
+		case 0x1e20:
 		case 0x811b:	/* SCH */
 		case 0x080a:
 			pcicfgw16(p, 0x78, pcicfgr16(p, 0x78) & ~0x800);
@@ -1695,9 +1700,9 @@ Found:
 	ctlr->no = adev->ctlrno;
 	ctlr->size = p->mem[0].size;
 	ctlr->q = qopen(256, 0, 0, 0);
-	ctlr->mem = vmap(p->mem[0].bar & ~0x0F, ctlr->size);
+	ctlr->mem = vmap(p->mem[0].bar & ~(uintmem)0xf, ctlr->size);
 	if(ctlr->mem == nil){
-		print("#A%d: hda: can't map %.8ux\n", ctlr->no, p->mem[0].bar);
+		print("#A%d: hda: can't map %#P\n", ctlr->no, p->mem[0].bar);
 		return -1;
 	}
 	print("#A%d: hda: mem %p irq %d\n", ctlr->no, ctlr->mem, irq);

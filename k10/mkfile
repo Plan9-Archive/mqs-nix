@@ -1,5 +1,5 @@
 CONF=cpu
-CONFLIST=cpu cpud term termd
+CONFLIST=cpu cpud cpuf term termd termf
 
 objtype=amd64
 </$objtype/mkfile
@@ -7,12 +7,14 @@ p=9
 
 nix:V:	$p$CONF
 
+CFLAGS=-FVTw -DTiklock
 <| awk -f ../mk/parse $CONF
 <../mk/bootmkfile
 <../mk/portmkfile
 
 OBJ=$MACH $CONF.root.$O $DEVS $PORT
 AGEN=sipi.h
+FW=/sys/lib/firmware
 
 #	$LD -o $target.elf -H5 -8 -T0xfffffffff0110000 -l $OBJ $CONF.$O $LIB
 
@@ -42,7 +44,7 @@ devarch.$O:	../port/error.h /$objtype/include/ureg.h
 fpu.$O:		amd64.h
 fpu.$O:		/$objtype/include/ureg.h
 ioapic.$O:	apic.h io.h
-main.$O:	init.h
+main.$O:	init.h reboot.h
 memory.$O:	amd64.h
 mmu.$O:		amd64.h
 mp.$O:		apic.h
@@ -66,7 +68,7 @@ etherigbe.$O:	../port/error.h ../port/ethermii.h ../port/netif.h
 etherigbe.$O:	etherif.h io.h
 etherm10g.$O:	../port/error.h ../port/netif.h
 etherm10g.$O:	etherif.h io.h
-etherm10g.$O:	etherm10g2k.i etherm10g4k.i
+etherm10g.$O:	$FW/etherm10g2k.i $FW/etherm10g4k.i
 i8259.$O:	io.h
 kbd.$O:		../port/error.h io.h
 pci.$O:		io.h
@@ -79,6 +81,8 @@ random.$O:	../port/error.h
 devacpi.$O: acpi.h
 physalloc.$O: acpi.h
 
+main.$O:	reboot.h
+
 sipi.h:D:		l64sipi.$O
 	$LD -o l64sipi.out -T0xfffffffff0003000 -R4 -l -s $prereq
 	{echo 'uchar sipihandler[]={'
@@ -87,3 +91,11 @@ sipi.h:D:		l64sipi.$O
 	     -e '1,2d' -e '3s/^ .. .. .. .. .. .. .. ..//'	\
 	     -e 's/ ([0-9a-f][0-9a-f])/0x\1,/g'
 	 echo '};'} > $target
+
+reboot.h:D:	rebootcode.s  amd64l.h
+	$AS rebootcode.s
+	$LD -l -s -T0x11000 -R1 -o reboot.out rebootcode.$O
+	{echo 'uchar rebootcode[]={'
+	dd -bs 40 -iseek 1 -quiet 1<reboot.out | xd -1x |
+		sed -e 's/^[0-9a-f]+ //' -e 's/ ([0-9a-f][0-9a-f])/0x\1,/g'
+	 echo '};'} > reboot.h

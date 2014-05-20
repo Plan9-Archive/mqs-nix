@@ -10,6 +10,7 @@
 #include "../port/error.h"
 #include "../port/uartp8250.h"
 
+/* need a way to chain these on the irq */
 extern PhysUart ox958physuart;
 
 static uint
@@ -37,10 +38,10 @@ itr(Uart *u, int on)
 
 	c = u->regs;
 	if(on)
-		intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+		c->vector = intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
 	else{
 		/* this causes hangs. please debug. */
-//		return intrdisable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+//		return intrdisable(c->vector);
 		return -1;
 	}
 	return 0;
@@ -104,7 +105,7 @@ ox958pnp(void)
 			}
 			uart->regs = ctlr;
 
-			snprint(buf, sizeof buf, "%s.%.8ux", "OXPCIe958", p->tbdf);
+			snprint(buf, sizeof buf, "uartox958.%T prt %d", p->tbdf, i);
 			kstrdup(&uart->name, buf);
 			uart->freq = 62284801;
 			uart->phys = &ox958physuart;

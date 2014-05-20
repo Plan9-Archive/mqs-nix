@@ -15,9 +15,6 @@ static int semtrytimes = 100;
  * If n == 0, there are no tickets
  * If n < 0, there are |n| processes waiting for tickets
  * or preparing to wait for tickets.
- *
- * CAUTION: Do not use adec/ainc for semaphores, they would
- * trap if the integer is negative, but that's ok for semaphores.
  */
 
 static void
@@ -71,7 +68,7 @@ semsleep(Sem *s, int dontblock)
 		 * Make sure that no other process is waiting because we
 		 * made a temporary down.
 		 */
-		semainc(s->np);
+		ainc(s->np);
 		semwakeup(s, 1, 1);
 		return;
 	}
@@ -106,7 +103,7 @@ Done:
 		 * killed; we no longer want a ticket.
 		 */
 		lock(s);
-		semainc(s->np);	/* we are no longer waiting; killed */
+		ainc(s->np);	/* we are no longer waiting; killed */
 		semwakeup(s, 1, 0);
 		unlock(s);
 	}
@@ -169,7 +166,7 @@ semdequeue(Sem *s)
 		 * on it; it must be because someone gave us its
 		 * ticket in the mean while. We must put it back.
 		 */
-		semainc(s->np);
+		ainc(s->np);
 		semwakeup(s, 0, 0);
 	}else{
 		s->nq--;
@@ -192,7 +189,7 @@ semalt(Sem *ss[], int n)
 	r = -1;
 	for(i = 0; i < n; i++){
 		s = ss[i];
-		n = semadec(s->np);
+		n = adec(s->np);
 		if(n >= 0){
 			r = i;
 			goto Done;
@@ -266,7 +263,7 @@ upsem(Sem *s)
 {
 	int n;
 
-	n = semainc(s->np);
+	n = ainc(s->np);
 	if(n <= 0)
 		semwakeup(s, 1, 1);
 }
@@ -280,7 +277,7 @@ downsem(Sem *s, int dontblock)
 		yield();
 	if(*s->np <= 0 && dontblock)
 		return -1;
-	n = semadec(s->np);
+	n = adec(s->np);
 	if(n < 0)
 		semsleep(s, dontblock);
 	return 0;

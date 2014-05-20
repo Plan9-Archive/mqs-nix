@@ -65,17 +65,17 @@ static Cmdtab vgactlmsg[] = {
 	CMunblank,	"unblank",	1,
 };
 
-extern int conf·monitor;
-
 static void
 vgareset(void)
 {
+	if(sys->novga)
+		return;
 	/* reserve the 'standard' vga registers */
 	if(ioalloc(0x2b0, 0x2df-0x2b0+1, 0, "vga") < 0)
 		panic("vga ports already allocated");
 	if(ioalloc(0x3c0, 0x3da-0x3c0+1, 0, "vga") < 0)
 		panic("vga ports already allocated");
-	conf·monitor = 1;
+	sys->monitor = 1;
 }
 
 static Chan*
@@ -105,7 +105,7 @@ vgaopen(Chan* c, int omode)
 	static char *openctl = "openctl\n";
 
 	scr = &vgascreen[0];
-	if ((ulong)c->qid.path == Qvgaovlctl) {
+	if ((uint)c->qid.path == Qvgaovlctl) {
 		if (scr->dev && scr->dev->ovlctl)
 			scr->dev->ovlctl(scr, c, openctl, strlen(openctl));
 		else 
@@ -121,7 +121,7 @@ vgaclose(Chan* c)
 	static char *closectl = "closectl\n";
 
 	scr = &vgascreen[0];
-	if((ulong)c->qid.path == Qvgaovlctl)
+	if((uint)c->qid.path == Qvgaovlctl)
 		if(scr->dev && scr->dev->ovlctl){
 			if(waserror()){
 				print("ovlctl error: %s\n", up->errstr);

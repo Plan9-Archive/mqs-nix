@@ -59,8 +59,9 @@ getehci(Ctlr* ctlr)
 static void
 ehcireset(Ctlr *ctlr)
 {
-	Eopio *opio;
 	int i;
+	u32int r;
+	Eopio *opio;
 
 	ilock(ctlr);
 	dprint("ehci %#p reset\n", ctlr->capio);
@@ -77,18 +78,8 @@ ehcireset(Ctlr *ctlr)
 	ehcirun(ctlr, 0);
 	opio->config = 0;
 
-	/* clear high 32 bits of address signals if it's 64 bits capable.
-	 * This is probably not needed but it does not hurt and others do it.
-	 */
-	if((ctlr->capio->capparms & C64) != 0){
-		dprint("ehci: 64 bits\n");
-		opio->seg = 0;
-		coherence();
-	}
-
 	if(ehcidebugcapio != ctlr->capio){
 		opio->cmd |= Chcreset;	/* controller reset */
-		coherence();
 		for(i = 0; i < 100; i++){
 			if((opio->cmd & Chcreset) == 0)
 				break;
@@ -99,9 +90,9 @@ ehcireset(Ctlr *ctlr)
 	}
 
 	/* requesting more interrupts per µframe may miss interrupts */
-	opio->cmd &= ~Citcmask;
-	opio->cmd |= 1 << Citcshift;		/* max of 1 intr. per 125 µs */
-	coherence();
+	r = opio->cmd;
+	r &= ~Citcmask;
+	opio->cmd = r | 1 << Citcshift;		/* max of 1 intr. per 125 µs */
 	switch(opio->cmd & Cflsmask){
 	case Cfls1024:
 		ctlr->nframes = 1024;
@@ -113,7 +104,7 @@ ehcireset(Ctlr *ctlr)
 		ctlr->nframes = 256;
 		break;
 	default:
-		panic("ehci: unknown fls %ld", opio->cmd & Cflsmask);
+		panic("ehci: unknown fls %d", opio->cmd & Cflsmask);
 	}
 	dprint("ehci: %d frames\n", ctlr->nframes);
 	iunlock(ctlr);
@@ -136,7 +127,6 @@ shutdown(Hci *hp)
 	ilock(ctlr);
 	opio = ctlr->opio;
 	opio->cmd |= Chcreset;		/* controller reset */
-	coherence();
 	for(i = 0; i < 100; i++){
 		if((opio->cmd & Chcreset) == 0)
 			break;
@@ -166,38 +156,35 @@ checkdev(Pcidev *p)
 	return 0;
 }
 	
-static void
+static int
 scanpci(void)
 {
-	int i;
 	uintmem io;
 	Ctlr *ctlr;
 	Pcidev *p;
 	Ecapio *capio;
-	static int already;
+	static int already, nctlr;
 
 	if(already)
-		return;
+		return nctlr;
 	already = 1;
-	i = 0;
 	for(p = nil; (p = pcimatch(p, 0, 0)) != nil; ) {
 		/*
 		 * Find EHCI controllers (Programming Interface = 0x20).
 		 */
 		if(p->ccrb != 0xc || p->ccru != 3 || p->ccrp != 0x20)
 			continue;
-		if(i == Nhcis){
+		if(nctlr == Nhcis){
 			print("ehci: bug: more than %d controllers\n", Nhcis);
 			continue;
 		}
 		if(checkdev(p) == -1){
-			print("usbehci: ignore %.4ux/%.4ux\n", p->vid, p->did);
+			print("usbehci: %T: ignore %.4ux/%.4ux\n", p->tbdf, p->vid, p->did);
 			continue;
 		}
-		io = p->mem[0].bar & ~0x0f;
+		io = p->mem[0].bar & ~(uintmem)0xf;
 		if(io == 0){
-			print("usbehci: %x %x: failed to map registers\n",
-				p->vid, p->did);
+			print("usbehci: %T: no bar 0\n", p->tbdf);
 			continue;
 		}
 		if(p->intl == 0xff || p->intl == 0) {
@@ -208,7 +195,7 @@ scanpci(void)
 			p->vid, p->did, io, p->mem[0].size, p->intl);
 		capio = vmap(io, p->mem[0].size);
 		if(capio == nil){
-			print("usbehci: can't vmap %#P\n", io);
+			print("usbehci: %T: can't vmap %#P\n", p->tbdf, io);
 			continue;
 		}
 
@@ -222,31 +209,38 @@ scanpci(void)
 		pcisetpms(p, 0);
 
 		/*
+		 * must be done before startup to prevent machine lockup.
+		 */
+		if((ctlr->capio->capparms & C64) != 0){
+			print("ehci: segmented: set seg=0\n");
+			ctlr->opio->seg = 0;
+		}
+
+		/*
 		 * currently, if we enable a second ehci controller on zt
 		 * systems w x58m motherboard, we'll wedge solid after iunlock
 		 * in init for the second one.
 		 */
-		if (i >= maxehci) {
-			print("usbehci: ignoring controllers after first %d, "
-				"at %#P\n", maxehci, io);
+		if (nctlr >= maxehci) {
+			print("usbehci: %T: ignoring controllers after first %d\n", p->tbdf, maxehci);
 			pciclrbme(p);
 			vunmap(capio, p->mem[0].size);
 			free(ctlr);
 			continue;
 		}
-		ctlrs[i++] = ctlr;
+		ctlrs[nctlr++] = ctlr;
 	}
+	return nctlr;
 }
 
 static int
 reset(Hci *hp)
 {
-	int i;
+	int i, nctlr;
 	char *s;
 	Ctlr *ctlr;
 	Ecapio *capio;
 	Pcidev *p;
-	static Lock resetlck;
 
 	s = getconf("*maxehci");
 	if(s != nil){
@@ -257,15 +251,15 @@ reset(Hci *hp)
 	if(maxehci == 0 || getconf("*nousbehci"))
 		return -1;
 
-	ilock(&resetlck);
-	scanpci();
+	nctlr = scanpci();
 
 	/*
 	 * Any adapter matches if no hp->port is supplied,
 	 * otherwise the ports must match.
 	 */
-	ctlr = nil;
-	for(i = 0; i < Nhcis && ctlrs[i] != nil; i++){
+	for(i = 0;; i++){
+		if(i == nctlr)
+			return -1;
 		ctlr = ctlrs[i];
 		if(ctlr->active == 0)
 		if(hp->port == 0 || hp->port == (uintptr)ctlr->capio){
@@ -273,13 +267,10 @@ reset(Hci *hp)
 			break;
 		}
 	}
-	iunlock(&resetlck);
-	if(i >= Nhcis || ctlrs[i] == nil)
-		return -1;
 
 	p = ctlr->pcidev;
 	hp->aux = ctlr;
-	hp->port = (uintptr)ctlr->capio;
+	hp->port = PTR2UINT(ctlr->capio);
 	hp->irq = p->intl;
 	hp->tbdf = p->tbdf;
 

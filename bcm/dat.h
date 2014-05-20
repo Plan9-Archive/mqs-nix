@@ -27,7 +27,6 @@ typedef struct PhysUart	PhysUart;
 typedef struct PMMU	PMMU;
 typedef struct Proc	Proc;
 typedef u32int		PTE;
-typedef struct Sys		Sys;
 typedef struct Uart	Uart;
 typedef struct Ureg	Ureg;
 typedef uvlong		Tval;
@@ -102,10 +101,13 @@ struct Conf
 	Confmem	mem[1];		/* physical memory */
 	ulong	npage;		/* total physical pages of memory */
 	usize	upages;		/* user page pool */
+	ulong	copymode;	/* 0 is copy on write, 1 is copy on reference */
 	uint	ialloc;		/* max interrupt time allocation in bytes */
 	ulong	pipeqsize;	/* size in bytes of pipe queues */
 	int	postdawn;	/* multiprogramming on */
-	uint	nimage;		/* number of page cache image headers */
+	ulong	nimage;		/* number of page cache image headers */
+	ulong	nswap;		/* number of swap pages */
+	int	nswppo;		/* max # of pageouts per segment pass */
 	ulong	hz;		/* processor cycle freq */
 	ulong	mhz;
 };
@@ -152,15 +154,10 @@ struct Mach
 	int	machno;			/* physical id of processor */
 	uintptr	splpc;			/* pc of last caller to splhi */
 
-	int	online;
-	int	pgsz[1];
-	int	pgszlg2[1];
-	int	npgsz;
-
 	Proc*	proc;			/* current process */
 
 	MMMU;
-	int	mmuflush;		/* flush current proc mmu state */
+	int	flushmmu;		/* flush current proc mmu state */
 
 	ulong	ticks;			/* of the clock since boot time */
 	Label	sched;			/* scheduler wakeup */
@@ -193,8 +190,6 @@ struct Mach
 	uvlong	cpuhz;			/* speed of cpu */
 	uvlong	cyclefreq;		/* Frequency of user readable cycle counter */
 
-	Sched*	sch;			/* scheduler used */
-
 	/* save areas for exceptions, hold R0-R4 */
 	u32int	sfiq[5];
 	u32int	sirq[5];
@@ -204,15 +199,6 @@ struct Mach
 	u32int	ssys[5];
 
 	int	stack[1];
-};
-
-struct Sys
-{
-	ulong	ticks;
-	Mach	**machptr;		/* booge; make port happy */
-	uintptr	vmend;
-	uintmem	ialloc;
-	int	copymode;		/* 0 is copy on write, 1 is copy on reference */
 };
 
 /*
@@ -237,7 +223,6 @@ extern uintptr kseg0;
 extern Mach* machaddr[MACHMAX];
 extern ulong memsize;
 extern int normalprint;
-extern	Sys	*sys;
 
 struct Hwconf {
 	char	*type;
@@ -255,6 +240,24 @@ struct Hwconf {
 #define DBGFLG		(0)
 #endif /* _DBGC_ */
 
+int vflag;
 extern char dbgflg[256];
 
-#define DBG(...)	if(!DBGFLG){}else print(__VA_ARGS__)
+#define dbgprint	print		/* for now */
+
+/*
+ *  hardware info about a device
+ */
+typedef struct {
+	ulong	port;
+	int	size;
+} Devport;
+
+struct DevConf
+{
+	ulong	intnum;			/* interrupt number */
+	char	*type;			/* card type, malloced */
+	int	nports;			/* Number of ports */
+	Devport	*ports;			/* The ports themselves */
+};
+

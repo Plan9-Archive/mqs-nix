@@ -3,6 +3,7 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
+#include "io.h"
 #include "adr.h"
 
 /*
@@ -35,26 +36,36 @@ static void
 parseoptions(void)
 {
 	long i, n;
-	char *cp, *line[Maxconf];
+	char *p, *line[Maxconf];
 
 	/*
 	 *  parse configuration args from dos file plan9.ini
 	 */
-	cp = BOOTARGS;	/* where b.com leaves its config */
-	cp[BOOTARGSLEN-1] = 0;
+	p = BOOTARGS;	/* where b.com leaves its config */
+	p[BOOTARGSLEN-1] = 0;
 
-	n = getfields(cp, line, Maxconf, 1, "\n");
+	n = getfields(p, line, Maxconf, 1, "\n");
 	for(i = 0; i < n; i++){
 		if(*line[i] == '#')
 			continue;
-		cp = strchr(line[i], '=');
-		if(cp == nil)
+		p = strchr(line[i], '=');
+		if(p == nil)
 			continue;
-		*cp++ = '\0';
+		*p++ = '\0';
 		cfg[ncfg].name = line[i];
-		cfg[ncfg].val = cp;
+		cfg[ncfg].val = p;
 		ncfg++;
 	}
+}
+
+void
+writeconf(void)
+{
+	char *p, *e;
+
+	e = BOOTARGS+BOOTARGSLEN;
+	p = confenv(BOOTARGS, e);
+	memset(p, 0, e-p);
 }
 
 static void
@@ -112,7 +123,7 @@ e820(void)
 	for(s = p;;){
 		if(*s == 0)
 			break;
-		type = strtoull(s, &s, 16);
+		type = strtoull(s, &s, 10);
 		if(*s != ' ')
 			break;
 		base = strtoull(s, &s, 16);
@@ -123,7 +134,7 @@ e820(void)
 			break;
 		if(type >= nelem(typemap))
 			continue;
-		adrmapinit(base, len, typemap[type], Mfree);
+		adrmapinit(base, len, typemap[type], Mfree, 0);
 	}
 }
 
@@ -178,11 +189,11 @@ pciconfig(char *class, int ctlrno, Pciconf *pci)
 		if(cistrncmp(p, "type=", 5) == 0)
 			pci->type = p + 5;
 		else if(cistrncmp(p, "port=", 5) == 0)
-			pci->port = strtoul(p+5, &p, 0);
+			pci->port = strtoull(p+5, &p, 0);
 		else if(cistrncmp(p, "irq=", 4) == 0)
 			pci->irq = strtoul(p+4, &p, 0);
 		else if(cistrncmp(p, "mem=", 4) == 0)
-			pci->mem = strtoul(p+4, &p, 0);
+			pci->mem = strtoull(p+4, &p, 0);
 		else if(cistrncmp(p, "tbdf=", 5) == 0)
 			pci->tbdf = strtotbdf(p+5, &p, 0);
 	}

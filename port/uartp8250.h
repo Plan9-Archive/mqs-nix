@@ -103,6 +103,8 @@ struct Ctlr {
 	int	hasfifo;
 	int	checkfifo;
 	int	fena;
+
+	void	*vector;
 };
 
 extern	PhysUart		p8250physuart;

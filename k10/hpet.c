@@ -42,7 +42,7 @@ hpetinit(uint seqno, uintmem pa, int minticks)
 	print("hpet: seqno %d pa %#p minticks %d\n", seqno, pa, minticks);
 	if(seqno >= nelem(etb))
 		return;
-	adrmapck(pa, 1024, Ammio, Mfree);
+	adrmapck(pa, 1024, Ammio, Mfree, Cnone);
 	if((hpet = vmap(pa, 1024)) == nil)
 		return;
 	etb[seqno] = hpet;

@@ -521,8 +521,8 @@ rtl8169ifstat(Ether* edev, void* a, long n, usize offset)
 		nexterror();
 	}
 
-	csr32w(ctlr, Dtccr+4, 0);
-	csr32w(ctlr, Dtccr, PCIWADDR(ctlr->dtcc)|Cmd);
+	csr32w(ctlr, Dtccr+4, Pciwaddrh(ctlr->dtcc));
+	csr32w(ctlr, Dtccr, Pciwaddrl(ctlr->dtcc)|Cmd);
 	for(timeo = 0; timeo < 1000; timeo++){
 		if(!(csr32r(ctlr, Dtccr) & Cmd))
 			break;
@@ -651,8 +651,8 @@ rtl8169replenish(Ctlr* ctlr)
 				break;
 			}
 			ctlr->rb[rdt] = bp;
-			d->addrlo = PCIWADDR(bp->rp);
-			d->addrhi = 0;
+			d->addrlo = Pciwaddrl(bp->rp);
+			d->addrhi = Pciwaddrh(bp->rp);
 		}else
 			iprint("i8169: rx overrun\n");
 		coherence();
@@ -801,10 +801,10 @@ rtl8169init(Ether* edev)
 	 */
 	csr32w(ctlr, Mpc, 0);
 	csr8w(ctlr, Etx, 0x3f);
-	csr32w(ctlr, Tnpds+4, 0);
-	csr32w(ctlr, Tnpds, PCIWADDR(ctlr->td));
-	csr32w(ctlr, Rdsar+4, 0);
-	csr32w(ctlr, Rdsar, PCIWADDR(ctlr->rd));
+	csr32w(ctlr, Tnpds+4, Pciwaddrh(ctlr->td));
+	csr32w(ctlr, Tnpds, Pciwaddrl(ctlr->td));
+	csr32w(ctlr, Rdsar+4, Pciwaddrh(ctlr->rd));
+	csr32w(ctlr, Rdsar, Pciwaddrl(ctlr->rd));
 	csr16w(ctlr, Rms, Mtu);		/* was Mps; see above comment */
 	r = csr16r(ctlr, Mulint) & 0xF000;	/* no early rx interrupts */
 	csr16w(ctlr, Mulint, r);
@@ -964,8 +964,8 @@ rtl8169transmit(Ether* edev)
 			break;
 
 		d = &ctlr->td[x];
-		d->addrlo = PCIWADDR(bp->rp);
-		d->addrhi = 0;
+		d->addrlo = Pciwaddrl(bp->rp);
+		d->addrhi = Pciwaddrh(bp->rp);
 		ctlr->tb[x] = bp;
 		coherence();
 		d->control |= Own | Fs | Ls | BLEN(bp);

@@ -14,7 +14,7 @@ enum {
 	Qpciraw,
 };
 
-#define TYPE(q)		((ulong)(q).path & 0x0F)
+#define TYPE(q)		((uint)(q).path & 0x0F)
 #define QID(c, t)	(((c)<<4)|(t))
 
 static Dirtab topdir[] = {
@@ -78,7 +78,7 @@ pcigen(Chan *c, char *, Dirtab*, int, int s, Dir *dp)
 		return pcidirgen(c, s+Qpcictl, p->tbdf, dp);
 	case Qpcictl:
 	case Qpciraw:
-		tbdf = MKBUS(BusPCI, 0, 0, 0)|BUSBDF((ulong)c->qid.path);
+		tbdf = MKBUS(BusPCI, 0, 0, 0)|BUSBDF((uint)c->qid.path);
 		p = pcimatchtbdf(tbdf);
 		if(p == nil)
 			return -1;
@@ -196,7 +196,7 @@ pciread(Chan *c, void *va, long n, vlong offset)
 		for(i=0; i<nelem(p->mem); i++){
 			if(p->mem[i].size == 0)
 				continue;
-			w = seprint(w, ebuf, " %d:%.8ux %d", i, p->mem[i].bar, p->mem[i].size);
+			w = seprint(w, ebuf, " %d:%#P %d", i, p->mem[i].bar, p->mem[i].size);
 		}
 		*w++ = '\n';
 		*w = '\0';

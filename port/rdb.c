@@ -59,7 +59,7 @@ talkrdb(Ureg *ureg)
 	uchar *a;
 	char *p, *req;
 
-	delconsdevs();		/* turn off serial console and kprint */
+	synccons();
 //	scrprint("Plan 9 debugger\n");
 	iprint("Edebugger reset\n");
 	for(;;){

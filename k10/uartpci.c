@@ -38,10 +38,10 @@ itr(Uart *u, int on)
 
 	c = u->regs;
 	if(on)
-		intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+		c->vector = intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
 	else{
 		/* this causes hangs. please debug. */
-//		return intrdisable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+	//	return intrdisable(c->vector);
 		return -1;
 	}
 	return 0;
@@ -103,7 +103,7 @@ uartpci(Pcidev* p, int barno, int n, int freq, char* name, int iosize)
 }
 
 static void
-ultraport16si(Pcidev *p, ulong freq)
+ultraport16si(Pcidev *p, uint freq)
 {
 	int io, i;
 	char *name;
@@ -128,7 +128,7 @@ uartpcipnp(void)
 {
 	char *name;
 	int subid;
-	ulong freq;
+	uint freq;
 	Pcidev *p;
 
 	memmove(&pciphysuart, &p8250physuart, sizeof(PhysUart));

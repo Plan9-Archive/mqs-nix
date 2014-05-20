@@ -247,7 +247,7 @@ donate(Proc *p)
 		if(mp->sch->nrdy > m->sch->nrdy)/* more loaded than us, ignore */
 			continue;
 		p->mp = mp;
-		p->color = machcolor(mp->machno);
+		p->color = machcolor(mp);
 		machno = mach + 1;
 iprint("donate %d -> %d\n", m->machno, mp->machno);
 		sched();
@@ -385,7 +385,7 @@ sysexec(Ar0* ar0, va_list list)
 	|| datalim < textlim || bsslim < datalim)
 		error(Ebadexec);
 
-	up->color = machcolor(m->machno);
+	up->color = machcolor(m);
 
 	/*
 	 * The new stack is created in ESEG, temporarily mapped elsewhere.
@@ -848,7 +848,7 @@ sysrendezvous(Ar0* ar0, va_list list)
 			p->rendval = PTR2UINT(va_arg(list, void*));
 
 			while(p->mach != 0)
-				;
+				pause();
 			ready(p);
 			unlock(up->rgrp);
 
@@ -950,7 +950,7 @@ sysrendezvous(Ar0* ar0, va_list list)
  * queued processor writes into account so we have to
  * think hard.  The only variables accessed outside locks
  * are the semaphore value itself and the boolean flag
- * Sema.waiting.  The value is only accessed with CAS,
+ * Sema.waiting.  The value is only accessed with cas,
  * whose job description includes doing the right thing as
  * far as memory coherence across processors.  That leaves
  * Sema.waiting.  To handle it, we call coherence() before each
@@ -1008,7 +1008,7 @@ semrelease(Segment* s, int* addr, int delta)
 
 	do
 		value = *addr;
-	while(!CASW(addr, value, value+delta));
+	while(!cas32(addr, value, value+delta));
 	semwakeup(s, addr, delta);
 
 	return value+delta;
@@ -1021,7 +1021,7 @@ canacquire(int* addr)
 	int value;
 
 	while((value = *addr) > 0){
-		if(CASW(addr, value, value-1))
+		if(cas32(addr, value, value-1))
 			return 1;
 	}
 
@@ -1126,7 +1126,6 @@ syssemacquire(Ar0* ar0, va_list list)
 	 * int semacquire(int* addr, int block);
 	 */
 	addr = va_arg(list, int*);
-	addr = validaddr(addr, sizeof(int), 1);
 	evenaddr(PTR2UINT(addr));
 	block = va_arg(list, int);
 

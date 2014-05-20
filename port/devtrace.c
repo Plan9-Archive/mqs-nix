@@ -11,7 +11,7 @@
 typedef struct Trace Trace;
 /* This is a trace--a segment of memory to watch for entries and exits */
 struct Trace {
-	struct Trace *next;
+	Trace *next;
 	void *func;
 	void *start;
 	void *end;
@@ -23,15 +23,11 @@ enum {
 	Qdir,
 	Qctl,
 	Qdata,
-};
 
-enum {
 	TraceEntry = 1, 
 	TraceExit,
-};
 
-/* fix me make this programmable */
-enum {
+	PIDWATCHSIZE = 32,
 	defaultlogsize = 8192,
 };
 
@@ -46,36 +42,34 @@ struct Tracelog {
 	int machno;
 };
 
-
 static Rendez tracesleep;
 static QLock traceslock;
 /* this will contain as many entries as there are valid pc values */
 static Trace **tracemap;
 static Trace *traces; /* This stores all the traces */
 static Lock loglk;
-static Tracelog *tracelog = nil;
-int traceactive = 0;
-/* trace indices. These are just unsigned longs. You mask them 
+static Tracelog *tracelog;
+int traceactive;
+/*
+ * trace indices. These are just ulongs. You mask them 
  * to get an index. This makes fifo empty/full etc. trivial. 
  */
-static uint pw = 0, pr = 0;
-static int tracesactive = 0;
-static int all = 0;
-static int watching = 0;
-static int slothits = 0;
-static unsigned int traceinhits = 0;
-static unsigned int newplfail = 0;
-static unsigned long logsize = defaultlogsize, logmask = defaultlogsize - 1;
-
-static int printsize = 0;	//The length of a line being printed
+static uint pw;
+static uint pr;
+static int tracesactive;
+static int all;
+static int watching;
+static int slothits;
+static uint traceinhits;
+static uint newplfail;
+static int printsize;	//The length of a line being printed
+static uint logsize = defaultlogsize;
+static uint logmask = defaultlogsize - 1;
 
 /* These are for observing a single process */
-static int *pidwatch = nil;
-static int numpids = 0;
-static const PIDWATCHSIZE = 32; /* The number of PIDS that can be watched. Pretty arbitrary. */
-
-int codesize = 0;
-
+static int *pidwatch;
+static int numpids;
+static int codesize;
 static uvlong lastestamp; /* last entry timestamp */
 static uvlong lastxstamp; /* last exit timestamp */
 
@@ -91,24 +85,7 @@ static Dirtab tracedir[]={
 	"trace",	{Qdata},	0,		0440,
 };
 
-char hex[] = {
-	'0',
-	'1',
-	'2',
-	'3',
-	'4',
-	'5',
-	'6',
-	'7',
-	'8',
-	'9',
-	'a',
-	'b',
-	'c',
-	'd',
-	'e',
-	'f',
-};
+static char hex[] = "0123456789abcdef";
 
 /* big-endian ... */
 void
@@ -189,30 +166,23 @@ overlapping(Trace *p) {
 	return 0;
 }
 
-/* Make sure a PC is valid and traced; if so, return its Trace */
-/* if dopanic == 1, the kernel will panic on an invalid PC */
-struct Trace **
+/*
+ * Make sure a PC is valid and traced; if so, return its Trace
+ * if dopanic == 1, the kernel will panic on an invalid PC
+ */
+Trace **
 traceslot(void *pc, int dopanic)
 {
 	int index;
-	struct Trace **p;
+	Trace **p;
 
-	if (pc > etext) {
+	if (pc > etext || pc > etext) {
 		if (dopanic)
-			panic("Bad PC %p", pc);
-
-		print("Invalid PC %p\n", pc);
+			panic("traceslot: invalid pc %p", pc);
+		print("traceslot: invalid pc %p\n", pc);
 		return nil;
 	}
-	index = (int)((uintptr)pc - KTZERO);
-	if (index > codesize){
-		if (dopanic) {
-			panic("Bad PC %p", pc);
-			while(1);
-		}
-		print("Invalid PC %p\n", pc);
-		return nil;
-	}
+	index = PTR2UINT(pc) - KTZERO;
 	p = &tracemap[index];
 	if (tracemap[index])
 		ainc(&slothits);
@@ -220,16 +190,14 @@ traceslot(void *pc, int dopanic)
 }
 
 /* Check if the given PC is traced and return a Trace if so */
-struct Trace *
+Trace *
 traced(void *pc, int dopanic)
 {
-	struct Trace **p;
+	Trace **p;
 
 	p = traceslot(pc, dopanic);
-	
 	if (p == nil)
 		return nil;
-
 	return *p;
 }
 
@@ -256,24 +224,20 @@ watchingpid(int pid) {
  * Remove a trace.
  */
 void
-removetrace(Trace *p) {
-	unsigned char *cp;
-	struct Trace *prev;
-	struct Trace *curr;
-	struct Trace **slot;
+removetrace(Trace *p)
+{
+	uchar *cp;
+	Trace *prev, *curr, **slot;
 
 	slot = traceslot(p->start, 0);
 	for(cp = p->start; cp <= p->end; slot++, cp++)
 		*slot = nil;
 
 	curr = traces;
-	
 	if (curr == p) {
-		if (curr->next) {
+		traces = nil;	//this seems to work fine
+		if (curr->next)
 			traces = curr->next;
-		} else {
-			traces = nil;	//this seems to work fine
-		}
 		free(curr);
 		return;
 	}
@@ -296,10 +260,11 @@ removetrace(Trace *p) {
 
 /* Turn on a trace */
 void
-traceon(struct Trace *p)
+traceon(Trace *p)
 {
-	unsigned char *cp;
-	struct Trace **slot;
+	uchar *cp;
+	Trace **slot;
+
 	slot = traceslot(p->start, 0);
 	for(cp = p->start; cp <= p->end; slot++, cp++)
 		*slot = p;
@@ -309,10 +274,11 @@ traceon(struct Trace *p)
 
 /* Turn off a trace */
 void
-traceoff(struct Trace  *p)
+traceoff(Trace  *p)
 {
-	unsigned char *cp;
-	struct Trace **slot;
+	uchar *cp;
+	Trace **slot;
+
 	slot = traceslot(p->start, 0);
 	for(cp = p->start; cp <= p->end; slot++, cp++)
 		*slot = nil;
@@ -321,28 +287,26 @@ traceoff(struct Trace  *p)
 }
 
 /* Make a new tracelog (an event) */
-/* can return NULL, meaning, no record for you */
-static struct Tracelog *
+/* can return nil, meaning, no record for you */
+static Tracelog *
 newpl(void)
 {
 	uint index;
 	
-	index = ainc((int *)&pw);
-
+	index = ainc((int*)&pw);
 	return &tracelog[idx(index)];
-
 }
 
 /* Called every time a (traced) function starts */
-/* this is not really smp safe. FIX */
+/* this is not smp safe. FIX */
 void
 tracein(void* pc, uintptr a1, uintptr a2, uintptr a3, uintptr a4)
 {	
-	struct Tracelog *pl;
+	Tracelog *pl;
 
 	/* if we are here, tracing is active. Turn it off. */
 	traceactive = 0;
-	if (! traced(pc, 1)){
+	if (!traced(pc, 1)){
 		traceactive = 1;
 		return; 
 	}
@@ -356,8 +320,7 @@ tracein(void* pc, uintptr a1, uintptr a2, uintptr a3, uintptr a4)
 	}
 
 	pl = newpl();
-
-	if (! pl) {
+	if (pl == nil) {
 		ainc((int *)&newplfail);
 		traceactive = 1;
 		return;
@@ -369,7 +332,7 @@ tracein(void* pc, uintptr a1, uintptr a2, uintptr a3, uintptr a4)
 	if (up)
 		pl->dat[0] = up->pid;
 	else
-		pl->dat[0] = (unsigned long)-1;
+		pl->dat[0] = -1;
 
 	pl->dat[1] = a1;
 	pl->dat[2] = a2;
@@ -385,33 +348,32 @@ tracein(void* pc, uintptr a1, uintptr a2, uintptr a3, uintptr a4)
 void
 traceout(void* pc, uintptr retval)
 {
-	struct Tracelog *pl;
+	Tracelog *pl;
+
 	/* if we are here, tracing is active. Turn it off. */
 	traceactive = 0;
-	if (! traced(pc, 1)){
+	if (!traced(pc, 1)){
 		traceactive = 1;
 		return; 
 	}
-		
-	if (!all)
-		if (!up || !watchingpid(up->pid)){
-			traceactive = 1;
-			return;
-		}
 
-	pl = newpl();
-	if (! pl){
+	if(!all && (up == nil || !watchingpid(up->pid))){
+		traceactive = 1;
+		return;
+	}
+
+	if((pl = newpl()) == nil){
 		traceactive = 1;
 		return;
 	}
 
 	cycles(&pl->ticks);
 
-	pl->pc = (uintptr)pc;
+	pl->pc = PTR2UINT(pc);
 	if (up)
 		pl->dat[0] = up->pid;
 	else
-		pl->dat[0] = (unsigned long)-1;
+		pl->dat[0] = (ulong)-1;
 
 	pl->dat[1] = retval;
 	pl->dat[2] = 0;
@@ -422,11 +384,11 @@ traceout(void* pc, uintptr retval)
 	traceactive = 1;
 }
 
-/* Create a new trace with the given range */
 static Trace *
 mktrace(void *func, void *start, void *end)
 {
 	Trace *p;
+
 	p = mallocz(sizeof p[0], 1);
 	p->func = func;
 	p->start = start;
@@ -434,13 +396,11 @@ mktrace(void *func, void *start, void *end)
 	return p;
 }
 
-/* Get rid of an old trace */
 static void
 freetrace(Trace *p)
 {
 	free(p);
 }
-
 
 static Chan*
 traceattach(char *spec)
@@ -463,26 +423,19 @@ tracestat(Chan *c, uchar *db, long n)
 static Chan*
 traceopen(Chan *c, int omode)
 {
-
-	/* if there is no tracelog, allocate one. Open always fails
-	 * if the basic alloc fails. You can resize it later. 
-	 */
-
-	codesize = (uintptr)etext - (uintptr)KTZERO;
-	if (! tracemap)
-		//tracemap = mallocz(sizeof(struct tracemap *)*codesize, 1);
-		tracemap = mallocz(sizeof(struct Trace *)*codesize, 1);
-	if (! tracemap)
-		error("tracemap malloc failed");
-	if (! tracelog)
+	codesize = PTR2UINT(etext - KTZERO);
+	if(tracemap == nil)
+		tracemap = mallocz(sizeof(Trace *)*codesize, 1);
+	if (tracelog == nil)
 		tracelog = mallocz(sizeof(*tracelog)*logsize, 1);
-	/* I guess malloc doesn't toss an error */
-	if (! tracelog)
-		error("tracelog malloc failed");
-	if (! pidwatch)
+	if (pidwatch == nil)
 		pidwatch = mallocz(sizeof(int)*PIDWATCHSIZE, 1);
-	if (! pidwatch)
-		error("pidwatch malloc failed");
+	if(pidwatch == nil || tracelog == nil || tracemap == nil){
+		free(pidwatch);
+		free(tracelog);
+		free(tracemap);
+		error(Enomem);
+	}
  	c = devopen(c, omode, tracedir, nelem(tracedir), devgen);
 	return c;
 }
@@ -500,14 +453,15 @@ traceclose(Chan *)
 static long
 traceread(Chan *c, void *a, long n, vlong offset)
 {
-	char *buf;
-	char *cp = a;
-	struct Tracelog *pl;
+	char *buf, *cp;
+	int i, j, saveactive;
+	Tracelog *pl;
 	Trace *p;
-	int i, j;
-	int saveactive = traceactive;
-	traceactive = 0;
 	static QLock gate;
+
+	cp = a;
+	saveactive = traceactive;
+	traceactive = 0;		/* unlocked? */
 
 	if (waserror()) {
 		traceactive = saveactive;
@@ -528,7 +482,7 @@ traceread(Chan *c, void *a, long n, vlong offset)
 		i = 0;
 		qlock(&traceslock);
 		buf = malloc(READSTR);
-		i += snprint(buf + i, READSTR - i, "logsize %lud\n", logsize); 
+		i += snprint(buf + i, READSTR - i, "logsize %ud\n", logsize); 
 		for(p = traces; p != nil; p = p->next)
 			i += snprint(buf + i, READSTR - i, "trace %p %p new %s\n",
 				p->start, p->end, p->name);
@@ -651,11 +605,12 @@ traceread(Chan *c, void *a, long n, vlong offset)
 static long
 tracewrite(Chan *c, void *a, long n, vlong)
 {
-	char *tok[6]; //changed this so "tracein" works with the new 4th arg
-	char *ep, *s = nil;
-	Trace *p, **pp, *foo;
-	int ntok;
-	int saveactive = traceactive;
+	char *tok[6], *ep, *s;
+	int ntok, saveactive;
+	Trace *p, **pp, *l;
+
+	s = nil;
+	saveactive = traceactive;
 	traceactive = 0;
 
 	qlock(&traceslock);
@@ -714,8 +669,8 @@ tracewrite(Chan *c, void *a, long n, vlong)
 					error("devtrace: trace already exists");
 				}
 				p = mktrace(func, start, end);
-				for (foo = traces; foo != nil; foo = foo->next) {
-					if (!strcmp(tok[4], foo->name))
+				for (l = traces; l != nil; l = l->next) {
+					if (!strcmp(tok[4], l->name))
 						error("devtrace: trace with that name already exists");
 				}
 
@@ -743,7 +698,7 @@ tracewrite(Chan *c, void *a, long n, vlong)
 				if(p == nil) {
 					error("devtrace: trace not found");
 				}
-				if (! traced(p->func, 0)){
+				if (!traced(p->func, 0)){
 					traceon(p);
 				}
 			} else if(!strcmp(tok[2], "off")){
@@ -774,7 +729,7 @@ tracewrite(Chan *c, void *a, long n, vlong)
 			}
 		} else if(!strcmp(tok[0], "size")){
 			int l, size;
-			struct Tracelog *newtracelog;
+			Tracelog *newtracelog;
 			
 			if (ntok != 2)
 				error("devtrace: usage: size <exponent>");

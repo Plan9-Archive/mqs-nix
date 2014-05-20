@@ -104,12 +104,10 @@ static ulong mousetime;
 
 extern Memimage* gscreen;
 
-int conf·monitor = 1;
-
 static void
 mousereset(void)
 {
-	if(!conf·monitor)
+	if(!sys->monitor)
 		return;
 
 	curs = arrow;
@@ -137,7 +135,7 @@ mousedevgen(Chan *c, char *name, Dirtab *tab, int ntab, int i, Dir *dp)
 static void
 mouseinit(void)
 {
-	if(!conf·monitor)
+	if(!sys->monitor)
 		return;
 
 	curs = arrow;
@@ -152,7 +150,7 @@ mouseinit(void)
 static Chan*
 mouseattach(char *spec)
 {
-	if(!conf·monitor)
+	if(!sys->monitor)
 		error(Egreg);
 	return devattach('m', spec);
 }
@@ -209,7 +207,7 @@ mouseopen(Chan *c, int omode)
 static void
 mousecreate(Chan*, char*, int, int)
 {
-	if(!conf·monitor)
+	if(!sys->monitor)
 		error(Egreg);
 	error(Eperm);
 }
@@ -302,7 +300,7 @@ mouseread(Chan *c, void *va, long n, vlong off)
 				b = 16;
 			else if (b == 16)
 				b = 8;
-		sprint(buf, "m%11d %11d %11d %11lud ",
+		snprint(buf, sizeof buf, "m%11d %11d %11d %11lud ",
 			m.xy.x, m.xy.y,
 			b,
 			m.msec);

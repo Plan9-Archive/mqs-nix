@@ -40,7 +40,12 @@ installall:V:
 
 $OBJ: $HFILES
 
-main.$O:	init.h
+init.h:D:	../port/initcode.c init9.s
+	$CC ../port/initcode.c
+	$AS init9.s
+	$LD -l -R1 -s -o init.out init9.$O initcode.$O /$objtype/lib/libc.a
+	{echo 'uchar initcode[]={'
+	 xd -1x <init.out |
+		sed -e 's/^[0-9a-f]+ //' -e 's/ ([0-9a-f][0-9a-f])/0x\1,/g'
+	 echo '};'} > init.h
 
-init.out:D:	init9.$O initcode.$O /$objtype/lib/libc.a
-	$LD -l -R1 -s -o init.out init9.$O initcode.$O -lc

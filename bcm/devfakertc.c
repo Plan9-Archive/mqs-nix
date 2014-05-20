@@ -84,8 +84,8 @@ rtcwalk(Chan* c, Chan *nc, char** name, int nname)
 	return devwalk(c, nc, name, nname, rtcdir, nelem(rtcdir), devgen);
 }
 
-static long	 
-rtcstat(Chan* c, uchar* dp, long n)
+static int	 
+rtcstat(Chan* c, uchar* dp, int n)
 {
 	return devstat(c, dp, n, rtcdir, nelem(rtcdir), devgen);
 }

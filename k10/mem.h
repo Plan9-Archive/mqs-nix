@@ -67,7 +67,7 @@
  *  Address spaces. Kernel, sorted by address.
  */
 #define KSEG2		(0xfffffe0000000000ull)	/* 1TB - KMAP */
-/*			 0xffffff0000000000ull	end of KSEG2 */
+#define KSEG2END	0xffffff0000000000ull	/* end of KSEG2 */
 #define KSEG0		(0xfffffffff0000000ull)	/* 256MB - this is confused */
 #define KZERO		(0xfffffffff0000000ull)
 #define KTZERO		(KZERO+1*MiB+64*KiB)

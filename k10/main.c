@@ -6,9 +6,11 @@
 
 #include "init.h"
 #include "io.h"
+#include "apic.h"
 
-Conf	conf;
-uintptr	kseg0 = KZERO;
+#include "amd64.h"
+#include "reboot.h"
+
 Sys*	sys;
 char	dbgflg[256];
 
@@ -31,6 +33,7 @@ squidboy(int apicno)
 
 	DBG("Hello Squidboy %d %d\n", apicno, m->machno);
 
+	trapinit();
 	vsvminit(MACHSTKSZ);
 	apmmuinit();
 	if(!lapiconline())
@@ -39,22 +42,18 @@ squidboy(int apicno)
 	m->splpc = 0;
 	m->online = 1;
 
-	/*
-	 * CAUTION: no time sync done, etc.
-	 */
 	DBG("Wait for the thunderbirds!\n");
 	while(!active.thunderbirdsarego)
-		;
+		monmwait(&active.thunderbirdsarego, 0);
 	wrmsr(0x10, sys->epoch);
 	m->rdtsc = rdtsc();
 
 	DBG("cpu%d color %d tsc %lld\n",
-		m->machno, machcolor(m->machno), m->rdtsc);
+		m->machno, machcolor(m), m->rdtsc);
 
 	/*
-	 * Enable the timer interrupt.
+	 * enable interrupts.
 	 */
-//	apictimerenab();
 	lapicpri(0);
 
 	timersinit();
@@ -62,16 +61,12 @@ squidboy(int apicno)
 	ainc(&active.nonline);
 
 	schedinit();
-
 	panic("squidboy returns");
 }
 
 /*
- * Rendezvous with other cores.
- * wait until they are initialized.
- * Sync TSC with them.
- * We assume other processors that could boot had time to
- * set online to 1 by now.
+ * Wait for other cores to be initialized and sync tsc counters.
+ * Assume other cores have had time to set active.online=1.
  */
 static void
 nixsquids(void)
@@ -82,7 +77,7 @@ nixsquids(void)
 
 	for(i = 1; i < MACHMAX; i++)
 		if((mp = sys->machptr[i]) != nil && mp->online != 0){
-			conf.nmach++;
+			sys->nmach++;
 			ainc(&active.nbooting);
 		}
 	sys->epoch = rdtsc();
@@ -100,17 +95,18 @@ nixsquids(void)
 }
 
 void
+sysconfinit(void)
+{
+	sys->nproc = 2000;
+	sys->nimage = 200;
+}
+
+void
 main(void)
 {
 	vlong hz;
 
 	memset(edata, 0, end - edata);
-
-	/*
-	 * ilock via i8250enable via i8250console
-	 * needs m->machno, sys->machptr[] set, and
-	 * also 'up' set to nil.
-	 */
 	cgapost(sizeof(uintptr)*8);
 	memset(m, 0, sizeof(Mach));
 
@@ -125,7 +121,7 @@ main(void)
 	active.nbooting = 0;
 	log2init();
 	adrinit();
-	confinit();
+	sysconfinit();
 	options();
 
 	/*
@@ -141,17 +137,13 @@ main(void)
 	consputs = cgaconsputs;
 
 	vsvminit(MACHSTKSZ);
-
-	conf.nmach = 1;
-
+	sys->nmach = 1;
 	fmtinit();
 	print("\nnix\n");
 	print("\nhello world\n");
 
 	m->perf.period = 1;
 	hz = archhz();
-	if(hz == 0)
-		panic("no hz");
 	m->cpuhz = hz;
 	m->cyclefreq = hz;
 	m->cpumhz = hz/1000000ll;
@@ -164,37 +156,27 @@ main(void)
 	meminit();
 	archinit();
 	mallocinit();
+	archpciinit();
 
-	/*
-	 * Acpiinit will cause the first malloc. If the system dies here it's probably due
-	 * to malloc not being initialized correctly, or the data segment is misaligned
-	 * (it's amazing how far you can get with things like that completely broken).
-	 */
-	acpiinit();
+	i8259init(32);
+	if(getconf("*maxmach") != nil)
+		maxmach = atoi(getconf("*maxmach"));
+	mpsinit(maxmach);		/* acpi */
 
 	umeminit();
 	trapinit();
 	printinit();
 
-	/*
-	 * This is necessary with GRUB and QEMU. Without it an interrupt can occur
-	 * at a weird vector, because the vector base is likely different, causing
-	 * havoc. Do it before any APIC initialisation.
-	 */
-	i8259init(32);
-
 	procinit0();
-	if(getconf("*maxmach") != nil)
-		maxmach = atoi(getconf("*maxmach"));
-	mpsinit(maxmach);
 	lapiconline();
 	ioapiconline();
 	sipi();
 
 	timersinit();
 	kbdenable();
+	i8042kbdenable();
 	fpuinit();
-	psinit(conf.nproc);
+	psinit(sys->nproc);
 	initimage();
 	links();
 	devtabreset();
@@ -308,9 +290,7 @@ userinit(void)
 	 * Kernel Stack
 	 *
 	 * N.B. make sure there's enough space for syscall to check
-	 *	for valid args and
-	 *	space for gotolabel's return PC
-	 * AMD64 stack must be quad-aligned.
+	 * for valid args and space for gotolabel's return PC
 	 */
 	p->sched.pc = PTR2UINT(init0);
 	p->sched.sp = PTR2UINT(p->kstack+KSTACK-sizeof(up->arg)-sizeof(uintptr));
@@ -350,104 +330,78 @@ userinit(void)
 }
 
 void
-confinit(void)
-{
-	conf.nproc = 2000;
-	conf.nimage = 200;
-}
-
-static void
-shutdown(int ispanic)
-{
-	int ms, once;
-
-	lock(&active);
-	if(ispanic)
-		active.ispanic = ispanic;
-	else if(m->machno == 0 && m->online == 0)
-		active.ispanic = 0;
-	once = m->online;
-	m->online = 0;
-	adec(&active.nonline);
-	active.exiting = 1;
-	unlock(&active);
-
-	if(once)
-		iprint("cpu%d: exiting\n", m->machno);
-
-	spllo();
-	for(ms = 5*1000; ms > 0; ms -= TK2MS(2)){
-		delay(TK2MS(2));
-		if(active.nonline == 0 && consactive() == 0)
-			break;
-	}
-
-	if(active.ispanic && m->machno == 0){
-		if(cpuserver)
-			delay(30000);
-		else
-			for(;;)
-				halt();
-	}
-	else
-		delay(1000);
-}
-
-void
 apshut(void *v)
 {
 	int i;
 
 	i = (int)(uintptr)v;
 	procwired(up, i);
-	sched();
 	splhi();
 	lapicpri(0xff);
+	m->online = 0;
 	adec(&active.nonline);
-	for(;;)
-		hardhalt();
+	ndnr();
 }
 
-#include "amd64.h"
+#define REBOOTADDR (0x11000)
+
 void
 reboot(void *entry, void *code, usize size)
 {
 	int i;
+	uintptr a;
 	void (*f)(uintmem, uintmem, usize);
 
-	panic("reboot");
+	writeconf();
 	procwired(up, 0);
-	sched();
 
-	for(i = 0; i < active.nonline; i++)
+	for(i = 1; i < active.nonline; i++)
 		kproc("apshut", apshut, (void*)i);
-	while(active.nonline>1)
-		;
+	while((a=active.nonline)>1)
+		monmwait(&active.nonline, a);
 
-	/* turn off buffered serial console? */
-
+	synccons();
 	devtabshutdown();
 	pcireset();
-
+	splhi();
 	lapicpri(0xff);
-	outb(0x21, 0xff);
-	outb(0xa1, 0xff);
 
-//	m->pdp[0] = 0 | PtePS | PteP | PteRW;
-	m->pml4[0] = m->pml4[PTLX(KZERO, 3)];
-	cr3put(PADDR(m->pml4));
+	if(up != nil){
+		m->proc = nil;
+		mmurelease(up);
+		up = nil;
+	}
 
-//	f = (void*)REBOOTADDR;
-//	memmove(f, rebootcode, sizeof(rebootcode));
-	f = (void*)0;
+	mmumap(0, 0, 6*1024*1024, PteP|PteRW);
+	putcr3(m->pml4->pa);
 
-	coherence();
-	(*f)(PADDR(entry), PADDR(code), size);
+	f = UINT2PTR(REBOOTADDR);
+	memmove(f, rebootcode, sizeof(rebootcode));
+	print("warp32...\n");
+	f(PTR2UINT(entry), PADDR(code), size);
 }
 
 void
 exit(int ispanic)
 {
-	shutdown(ispanic);
+	int ms;
+
+	synccons();
+	/* accounting */
+	if(!m->online)
+		archreset();	/* exiting a second time; must not hang */
+	m->online = 0;
+	iprint("cpu%d: exiting\n", m->machno);
+	adec(&active.nonline);
+	ainc(&active.exiting);
+
+	/* wait (terminals wait forever) */
+	if(ispanic && !cpuserver)
+		ndnr();
+	for(ms = 0; ms < 5000; ms += 1){
+		if(active.nonline == 0)
+			break;
+		delay(1);
+	}
 	archreset();
 }

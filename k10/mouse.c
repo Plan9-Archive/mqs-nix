@@ -104,14 +104,14 @@ scale(int x)
 
 static void resetmouse(void);
 static void
-ps2mouseputc(int c, int shift)
+ps2mouseputc(int c)
 {
 	static short msg[4];
 	static int nb, aa;
 	static uchar b[] = {0, 1, 4, 5, 2, 3, 6, 7, 0, 1, 2, 3, 2, 3, 6, 7 };
 	static ulong lasttick;
 	ulong m;
-	int buttons, dx, dy;
+	int shift, buttons, dx, dy;
 
 	if(c == 0xaa){
 		aa = 1;
@@ -128,7 +128,7 @@ ps2mouseputc(int c, int shift)
 	 * non-ps2 keyboards might not set shift
 	 * but still set mouseshifted.
 	 */
-	shift |= mouseshifted;
+	shift = mouseshifted;
 	/*
 	 * Resynchronize in stream with timing; see comment above.
 	 */
@@ -185,7 +185,7 @@ ps2mouseputc(int c, int shift)
 		}
 		dx = scale(msg[1]);
 		dy = -scale(msg[2]);
-		mousetrack(dx, dy, buttons, TK2MS(MACHP(0)->ticks));
+		mousetrack(dx, dy, buttons, TK2MS(sys->ticks));
 	}
 }
 
@@ -206,7 +206,7 @@ ps2mouse(void)
 	mousetype = MousePS2;
 	packetsize = 3;
 	mousehwaccel = 1;
-resetmouse();
+	resetmouse();
 }
 
 /*

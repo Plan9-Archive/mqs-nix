@@ -12,7 +12,6 @@ static int isvalidip(uchar*);
 static void netndb(char*, uchar*);
 static void netenv(char*, uchar*);
 
-
 void
 configip(int bargc, char **bargv, int needfs)
 {
@@ -26,11 +25,11 @@ configip(int bargc, char **bargv, int needfs)
 
 	arg = malloc((bargc+1) * sizeof(char*));
 	if(arg == nil)
-		fatal("malloc");
+		fatal("%r");
 	memmove(arg, bargv, bargc * sizeof(char*));
 	arg[bargc] = 0;
 
-print("ipconfig...");
+	print("ipconfig...");
 	argc = bargc;
 	argv = arg;
 	strcpy(mpoint, "/net");
@@ -68,7 +67,7 @@ print("ipconfig...");
 	/* let ipconfig configure the ip interface */
 	switch(pid = fork()){
 	case -1:
-		fatal("fork configuring ip");
+		fatal("fork configuring ip: %r");
 	case 0:
 		exec("/boot/ipconfig", arg);
 		fatal("execing /ipconfig");
@@ -139,8 +138,8 @@ configtcp(Method*)
 int
 connecttcp(void)
 {
-	int fd;
 	char buf[64];
+	int fd;
 
 	snprint(buf, sizeof buf, "tcp!%I!564", fsip);
 	fd = dial(buf, 0, 0, 0);

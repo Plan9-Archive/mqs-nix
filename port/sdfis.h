@@ -7,6 +7,7 @@ enum {
 	Spd15		= 8,
 	Spd30		= 9,
 	Spd60		= 10,
+	Spd120		= 11,
 
 	SDspinup	= SDretry - 1,
 	SDrate		= SDretry - 2,

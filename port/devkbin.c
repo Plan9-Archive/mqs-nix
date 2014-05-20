@@ -22,8 +22,7 @@ Dirtab kbintab[] = {
 	"kbin",	{Qkbd, 0},		0,	0200,
 };
 
-Lock	kbinlck;
-int	kbinbusy;
+static QLock kbdput;
 
 static Chan *
 kbinattach(char *spec)
@@ -48,27 +47,12 @@ kbinopen(Chan *c, int omode)
 {
 	if(!iseve())
 		error(Eperm);
-	if(c->qid.path == Qkbd){
-		lock(&kbinlck);
-		if(kbinbusy){
-			unlock(&kbinlck);
-			error(Einuse);
-		}
-		kbinbusy++;
-		unlock(&kbinlck);
-	}
 	return devopen(c, omode, kbintab, nelem(kbintab), devgen);
 }
 
 static void
-kbinclose(Chan *c)
+kbinclose(Chan*)
 {
-	if(c->aux){
-		free(c->aux);
-		c->aux = nil;
-	}
-	if(c->qid.path == Qkbd)
-		kbinbusy = 0;
 }
 
 static long
@@ -83,14 +67,22 @@ static long
 kbinwrite(Chan *c, void *a, long n, vlong)
 {
 	int i;
-	uchar *p = a;
+	uchar *p;
 
+	p = a;
 	if(c->qid.type == QTDIR)
 		error(Eisdir);
 	switch((int)c->qid.path){
 	case Qkbd:
+		qlock(&kbdput);
+		if(waserror()){
+			qunlock(&kbdput);
+			nexterror();
+		}
 		for(i = 0; i < n; i++)
 			kbdputsc(*p++, 1);	/* external source */
+		poperror();
+		qunlock(&kbdput);
 		break;
 	default:
 		error(Egreg);

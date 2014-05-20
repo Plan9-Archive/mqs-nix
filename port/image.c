@@ -94,7 +94,7 @@ lruimage(void)
 }
 
 /*
- * On clu, set conf.nimages = 10 to exercise reclaiming.
+ * On clu, set sys->nimages = 10 to exercise reclaiming.
  * It won't be able to get through all of cpurc, but will reclaim.
  */
 void
@@ -102,11 +102,11 @@ initimage(void)
 {
 	Image *i, *ie;
 
-	DBG("initimage: %ud images\n", conf.nimage);
-	imagealloc.mru = malloc(conf.nimage*sizeof(Image));
+	DBG("initimage: %ud images\n", sys->nimage);
+	imagealloc.mru = malloc(sys->nimage*sizeof(Image));
 	if(imagealloc.mru == nil)
 		panic("imagealloc: no memory");
-	ie = &imagealloc.mru[conf.nimage];
+	ie = &imagealloc.mru[sys->nimage];
 	for(i = imagealloc.mru; i < ie; i++){
 		i->c = nil;
 		i->ref = 0;
@@ -114,8 +114,8 @@ initimage(void)
 		i->next = i+1;
 	}
 	imagealloc.mru[0].prev = nil;
-	imagealloc.mru[conf.nimage-1].next = nil;
-	imagealloc.lru = &imagealloc.mru[conf.nimage-1];
+	imagealloc.mru[sys->nimage-1].next = nil;
+	imagealloc.lru = &imagealloc.mru[sys->nimage-1];
 	imagealloc.freechan = malloc(NFREECHAN * sizeof(Chan*));
 	imagealloc.szfreechan = NFREECHAN;
 

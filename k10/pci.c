@@ -8,8 +8,7 @@
 #include "io.h"
 #include "adr.h"
 
-enum
-{
+enum {					/* configuration mechanism #1 */
 	PciADDR		= 0xcf8,
 	PciDATA		= 0xcfc,
 
@@ -97,42 +96,29 @@ strtotbdf(char *p, char **r, int base)
 }
 
 static int
-fmtT(Fmt* fmt)
+Tfmt(Fmt* fmt)
 {
-	char *p;
-	int l, r;
-	uint type, tbdf;
+	char buf[32], *p, *e;
+	int type, tbdf;
 
-	if((p = malloc(READSTR)) == nil)
-		return fmtstrcpy(fmt, "(tbdfconv)");
-
-	switch(fmt->r){
-	case 'T':
-		tbdf = va_arg(fmt->args, uint);
-		if(tbdf == -1){
-			snprint(p, READSTR, "busunk");
-			break;
-		}
+	p = buf;
+	e = buf+sizeof buf;
+	tbdf = va_arg(fmt->args, int);
+	if(tbdf == -1)
+		return fmtstrcpy(fmt, "isa");
+	if(fmt->flags & FmtLong){
 		type = BUSTYPE(tbdf);
-		if(type < nelem(bustypes))
-			l = snprint(p, READSTR, bustypes[type]);
+		if(type == 12)
+			p = seprint(p, e, "pci.");
 		else
-			l = snprint(p, READSTR, "%d", type);
-		snprint(p+l, READSTR-l, ".%d.%d.%d",
-			BUSBNO(tbdf), BUSDNO(tbdf), BUSFNO(tbdf));
-		break;
-
-	default:
-		snprint(p, READSTR, "(tbdfconv)");
-		break;
+			p = seprint(p, e, "%d.", type);
 	}
-	r = fmtstrcpy(fmt, p);
-	free(p);
-
-	return r;
+	seprint(p, e, "%d.%d.%d",
+		BUSBNO(tbdf), BUSDNO(tbdf), BUSFNO(tbdf));
+	return fmtstrcpy(fmt, buf);
 }
 
-static uint
+static u32int
 pcibarsize(Pcidev *p, int rno)
 {
 	u32int v, size;
@@ -147,11 +133,37 @@ pcibarsize(Pcidev *p, int rno)
 	return -(size & ~0x0F);
 }
 
+static void
+pcibars(Pcidev *p)
+{
+	int i, o;
+	u32int bar;
+
+	for(i = 0; i < nelem(p->mem); i++) {
+		o = PciBAR0+4*i;
+		p->mem[i].bar = (u32int)pcicfgr32(p, o);
+		p->mem[i].size = pcibarsize(p, o);
+		if(i&1 || (p->mem[i].bar & 2<<1) == 0)
+			continue;
+		bar = pcicfgr32(p, o+4);
+		if(sizeof(uintmem) >= sizeof(u64int))
+			p->mem[i].bar |= (u64int)bar<<32;
+		else if(bar != 0){
+			print("%T: warning 64-bit bar %d too large\n", p->tbdf, i);
+			p->mem[i].bar = 0;
+			p->mem[i].size = 0;
+		}
+		i++;
+		p->mem[i].bar = 0;
+		p->mem[i].size = 0;
+	}
+}
+
 static int
 pcilscan(int bno, Pcidev** list)
 {
 	Pcidev *p, *head, *tail;
-	int dno, fno, i, hdt, l, maxfno, maxubn, sbn, tbdf, ubn;
+	int dno, fno, hdt, l, maxfno, maxubn, sbn, tbdf, ubn;
 
 	maxubn = bno;
 	head = nil;
@@ -206,12 +218,8 @@ pcilscan(int bno, Pcidev** list)
 			 */
 			switch(p->ccrb) {
 			default:
-				if((hdt & 0x7F) != 0)
-					break;
-				for(i = 0; i < nelem(p->mem); i++) {
-					p->mem[i].bar = pcicfgr32(p, PciBAR0+4*i);
-					p->mem[i].size = pcibarsize(p, PciBAR0+4*i);
-				}
+				if((hdt & 0x7F) == 0)
+					pcibars(p);
 				break;
 
 			case 0x00:
@@ -267,12 +275,9 @@ pcilscan(int bno, Pcidev** list)
 		}
 		else {
 			/*
-			 * You can't go back.
-			 * This shouldn't be possible, but the
-			 * Iwill DK8-HTX seems to have subordinate
-			 * bus numbers which get smaller on the
-			 * way down. Need to look more closely at
-			 * this.
+			 * You can't go back. This shouldn't be possible, but the
+			 * Iwill DK8-HTX seems to have decreasing subordinate
+			 * bus numbers Need to look more closely at his.
 			 */
 			if(ubn > maxubn)
 				maxubn = ubn;
@@ -283,7 +288,7 @@ pcilscan(int bno, Pcidev** list)
 	return maxubn;
 }
 
-static uchar 
+static uchar
 pIIxget(Pcidev *router, uchar link)
 {
 	uchar pirq;
@@ -293,13 +298,13 @@ pIIxget(Pcidev *router, uchar link)
 	return (pirq < 16)? pirq: 0;
 }
 
-static void 
+static void
 pIIxset(Pcidev *router, uchar link, uchar irq)
 {
 	pcicfgw8(router, link, irq);
 }
 
-static uchar 
+static uchar
 viaget(Pcidev *router, uchar link)
 {
 	uchar pirq;
@@ -310,7 +315,7 @@ viaget(Pcidev *router, uchar link)
 	return (link & 1)? (pirq >> 4): (pirq & 15);
 }
 
-static void 
+static void
 viaset(Pcidev *router, uchar link, uchar irq)
 {
 	uchar pirq;
@@ -327,7 +332,7 @@ struct Bridge
 	ushort	vid;
 	ushort	did;
 	uchar	(*get)(Pcidev *, uchar);
-	void	(*set)(Pcidev *, uchar, uchar);	
+	void	(*set)(Pcidev *, uchar, uchar);
 };
 
 static Bridge southbridges[] = {
@@ -363,7 +368,6 @@ struct Router {
 	uchar	checksum;
 };
 
-
 static void
 pcirouting(void)
 {
@@ -374,8 +378,8 @@ pcirouting(void)
 	Router *r;
 	Slot *e;
 
-	// Search for PCI interrupt routing table in BIOS
-	for(p = (uchar *)KADDR(0xf0000); p < (uchar *)KADDR(0xfffff); p += 16)
+	/* Search for PCI interrupt routing table in BIOS */
+	for(p = (uchar*)KADDR(0xf0000); p < (uchar*)KADDR(0xfffff); p += 16)
 		if(p[0] == '$' && p[1] == 'P' && p[2] == 'I' && p[3] == 'R')
 			break;
 
@@ -385,8 +389,8 @@ pcirouting(void)
 	r = (Router *)p;
 
 	if(0)
-		print("PCI interrupt routing table version %d.%d at %.6llux\n",
-			r->version[0], r->version[1], (uintptr)r & 0xfffff);
+		print("PCI interrupt routing table version %d.%d at %#.6ux\n",
+			r->version[0], r->version[1], (uint)PTR2UINT(r) & 0xfffff);
 
 	tbdf = (BusPCI << 24)|(r->bus << 16)|(r->devfn << 8);
 	sbpci = pcimatchtbdf(tbdf);
@@ -426,7 +430,7 @@ pcirouting(void)
 			if(pci == nil)
 				continue;
 			pin = pcicfgr8(pci, PciINTP);
-			if(pin == 0 || pin == 0xff) 
+			if(pin == 0 || pin == 0xff)
 				continue;
 
 			map = &e->maps[(pin - 1) * 3];
@@ -448,22 +452,10 @@ pcirouting(void)
 }
 
 static void
-pcireservemem(void)
-{
-	int i;
-	Pcidev *p;
-	
-	for(p = nil; p = pcimatch(p, 0, 0); )
-		for(i=0; i<nelem(p->mem); i++)
-			if(p->mem[i].bar && (p->mem[i].bar&1) == 0)
-				adrmapinit(p->mem[i].bar&~0x0F, p->mem[i].size, Apcibar, Mfree);
-}
-
-static void
 pcicfginit(void)
 {
-	int sbno, bno, n;
-	Pcidev **list, *p;
+	int bno, n;
+	Pcidev **list;
 
 	if(pcicfgmode != -1)
 		return;
@@ -473,7 +465,7 @@ pcicfginit(void)
 		return;
 	}
 
-	fmtinstall('T', fmtT);
+	fmtinstall('T', Tfmt);
 
 	/*
 	 * Try to determine if PCI Mode1 configuration implemented.
@@ -488,7 +480,7 @@ pcicfginit(void)
 			pcicfgmode = 1;
 	}
 	outl(PciADDR, n);
-	
+
 	if(pcicfgmode < 0){
 		unlock(&pcicfginitlock);
 		return;
@@ -496,29 +488,12 @@ pcicfginit(void)
 
 	list = &pciroot;
 	for(bno = 0; bno <= Maxbus; bno++) {
-		sbno = bno;
 		bno = pcilscan(bno, list);
-
-		while(*list)
+		while(*list != nil)
 			list = &(*list)->link;
-		if(sbno != 0)
-			continue;
-		/*
-		 * If we have found a PCI-to-Cardbus bridge, make sure
-		 * it has no valid mappings anymore.  
-		 */
-		for(p = pciroot; p != nil; p = p->link){
-			if (p->ccrb == 6 && p->ccru == 7) {
-				/* reset the cardbus */
-				pcicfgw16(p, PciBCR, 0x40 | pcicfgr16(p, PciBCR));
-				delay(50);
-			}
-		}
 	}
 
-	if(pciroot != nil && getconf("*nopcirouting") == nil)
-		pcirouting();
-	pcireservemem();
+	pcirouting();
 	unlock(&pcicfginitlock);
 
 	if(getconf("*pcihinv"))
@@ -597,7 +572,7 @@ pcicfgw16(Pcidev *p, int rno, int data)
 	pcicfgrw(p->tbdf, rno, data, Write, 2);
 }
 
-int
+uint
 pcicfgr32(Pcidev *p, int rno)
 {
 	return pcicfgrw(p->tbdf, rno, 0, Read, 4);
@@ -633,42 +608,32 @@ pcimatchtbdf(int tbdf)
 	return p;
 }
 
-static void
-pcilhinv(Pcidev* p)
+void
+pcihinv(Pcidev* p)
 {
 	int i;
 	Pcidev *t;
 
+	if(p == nil) {
+		p = pciroot;
+		print("tbdf:	 type vid  did intl memory\n");
+	}
 	for(t = p; t != nil; t = t->link) {
-		print("%d  %2d/%d %.2ux %.2ux %.2ux %.4ux %.4ux %3d  ",
-			BUSBNO(t->tbdf), BUSDNO(t->tbdf), BUSFNO(t->tbdf),
-			t->ccrb, t->ccru, t->ccrp, t->vid, t->did, t->intl);
+		print("%T:	%.2ux %.4ux/%.4ux %.2d",
+			t->tbdf, t->ccru, t->vid, t->did, t->intl);
 
 		for(i = 0; i < nelem(p->mem); i++) {
 			if(t->mem[i].size == 0)
 				continue;
-			print("%d:%.8ux %d ", i, t->mem[i].bar, t->mem[i].size);
+			print("%d:%#P %d ", i, t->mem[i].bar, t->mem[i].size);
 		}
-		if(t->bridge)
+		if(t->bridge != nil)
 			print("->%d", BUSBNO(t->bridge->tbdf));
 		print("\n");
 	}
 	for(; p != nil; p = p->link)
 		if(p->bridge != nil)
-			pcilhinv(p->bridge);
-}
-
-void
-pcihinv(Pcidev* p)
-{
-	pcicfginit();
-	lock(&pcicfginitlock);
-	if(p == nil){
-		p = pciroot;
-		print("bus dev type vid  did intl memory\n");
-	}
-	pcilhinv(p);
-	unlock(&pcicfginitlock);
+			pcihinv(p->bridge);
 }
 
 void

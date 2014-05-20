@@ -229,7 +229,7 @@ getsize(Dev *d)
 static void
 partitions0(char *s, int l)
 {
-	char *p, *f[3], buf[20];
+	char *p, *q, *f[3], buf[20];
 	int i;
 	Dev d;
 
@@ -240,6 +240,11 @@ partitions0(char *s, int l)
 		if(tokenize(s, f, nelem(f)) < 1)
 			continue;
 		for(i = 0; i < 0x10; i++){
+			snprint(buf, sizeof buf, "%s%xpart", f[0], i);
+			if((q = getenv(buf)) != nil){
+				free(q);
+				continue;
+			}
 			d.fd[0] = -1;
 			d.fd[1] = -1;
 			snprint(d.dev, sizeof d.dev, "#S/%s%x", f[0], i);

@@ -36,9 +36,9 @@ enum {
 	Nnetlink	= 6,
 };
 
-#define TYPE(q)		((ulong)(q).path & Maxtype)
-#define UNIT(q)		(((ulong)(q).path>>Typebits) & Maxunits)
-#define L(q)		(((ulong)(q).path>>Typebits+Unitbits) & Maxl3)
+#define TYPE(q)		((uint)(q).path & Maxtype)
+#define UNIT(q)		(((uint)(q).path>>Typebits) & Maxunits)
+#define L(q)		(((uint)(q).path>>Typebits+Unitbits) & Maxl3)
 #define QID(u, t) 	((u)<<Typebits | (t))
 #define Q3(l, u, t)	((l)<<Typebits+Unitbits | QID(u, t))
 #define UP(d)		((d)->flag & Dup)
@@ -131,11 +131,11 @@ typedef struct {
 typedef struct {
 	Netlink	*nl;
 	int	nea;
-	ulong	eaidx;
+	uint	eaidx;
 	uchar	eatab[Nea][Eaddrlen];
 	int	datamtu;
-	ulong	npkt;
-	ulong	resent;
+	uvlong	npkt;
+	uvlong	resent;
 	uchar	flag;
 
 	ulong	rttavg;
@@ -148,7 +148,7 @@ struct Srb {
 	uint	state;
 	Srb	*next;
 	ulong	ticksent;
-	ulong	len;
+	uint	len;
 	vlong	sector;
 	short	write;
 	short	nout;
@@ -159,8 +159,8 @@ struct Srb {
 
 typedef struct {
 	int	tag;
-	ulong	bcnt;
-	ulong	dlen;
+	uint	bcnt;
+	uint	dlen;
 	vlong	lba;
 	ulong	ticksent;
 	int	nhdr;
@@ -168,7 +168,7 @@ typedef struct {
 	void	*dp;
 	Devlink	*dl;
 	Netlink	*nl;
-	int	eaidx;
+	uint	eaidx;
 	Srb	*srb;
 } Frame;
 
@@ -177,10 +177,10 @@ struct Aoedev {
 	QLock;
 	Aoedev	*next;
 
-	ulong	vers;
+	uint	vers;
 
 	int	ndl;
-	ulong	dlidx;
+	uint	dlidx;
 	Devlink	*dl;
 	Devlink	dltab[Ndevlink];
 
@@ -198,7 +198,7 @@ struct Aoedev {
 
 	uint	maxbcnt;
 	uint	maxmtu;
-	ulong	lostjumbo;
+	uint	lostjumbo;
 	ushort	nout;
 	ushort	maxout;
 	ulong	lastwadj;
@@ -239,9 +239,15 @@ static struct {
 	Netlink	nl[Nnetlink];
 } netlinks;
 
+typedef struct Count Count;
+struct Count {
+	Lock;
+	int ref;
+};
+
 extern	Dev 	aoedevtab;
-static	Ref 	units;
-static	Ref	drivevers;
+static	Count 	units;
+static	Count	drivevers;
 static	int	debug;
 static	int	autodiscover	= 1;
 static	int	rediscover;
@@ -249,7 +255,7 @@ extern	char 	Enotup[] 	= "aoe device is down";
 extern	char	Echange[]	= "media or partition has changed";
 
 static Srb*
-srballoc(ulong sz)
+srballoc(usize sz)
 {
 	Srb *srb;
 
@@ -261,7 +267,7 @@ srballoc(ulong sz)
 }
 
 static Srb*
-srbkalloc(void *db, ulong)
+srbkalloc(void *db, usize)
 {
 	Srb *srb;
 
@@ -497,7 +503,7 @@ putlba(Aoeata *a, vlong lba)
 static Devlink*
 pickdevlink(Aoedev *d)
 {
-	ulong i, n;
+	uint i, n;
 	Devlink *l;
 
 	for(i = 0; i < d->ndl; i++){
@@ -570,7 +576,7 @@ hset(Aoedev *d, Frame *f, Aoehdr *h, int cmd, int new)
 static int
 resend(Aoedev *d, Frame *f)
 {
-	ulong n;
+	uint n;
 	Aoeata *a;
 	Aoehdr *h;
 
@@ -802,7 +808,7 @@ unitseq(Chan *c, uint unit, Dir *dp)
 
 /* locking not right.  should return locked d; requires rwlock. */
 static Aoedev*
-unit2dev(ulong unit)
+unit2dev(uint unit)
 {
 	Aoedev *d;
 
@@ -818,10 +824,10 @@ unit2dev(ulong unit)
 }
 
 static int
-unitgen(Chan *c, ulong type, Dir *dp)
+unitgen(Chan *c, uint type, Dir *dp)
 {
 	int perm, t;
-	ulong vers;
+	uint vers;
 	vlong size;
 	char *p;
 	Aoedev *d;
@@ -867,7 +873,7 @@ unitgen(Chan *c, ulong type, Dir *dp)
 }
 
 static int
-topgen(Chan *c, ulong type, Dir *d)
+topgen(Chan *c, uint type, Dir *d)
 {
 	int perm;
 	vlong size;
@@ -937,7 +943,7 @@ aoegen(Chan *c, char *, Dirtab *, int, int s, Dir *dp)
 	case Qunitdir:
 		if(s == DEVDOTDOT){
 			mkqid(&q, QID(0, Qtopdir), 0, QTDIR);
-			uprint("%uld", UNIT(c->qid));
+			uprint("%ud", UNIT(c->qid));
 			devdir(c, q, up->genbuf, 0, eve, 0555, dp);
 			return 1;
 		}
@@ -1026,7 +1032,7 @@ aoeclose(Chan *c)
 static void
 atarw(Aoedev *d, Frame *f)
 {
-	ulong bcnt;
+	uint bcnt;
 	char extbit, writebit;
 	Aoeata *ah;
 	Aoehdr *h;
@@ -1251,7 +1257,7 @@ rw(Aoedev *d, int write, uchar *db, long len, uvlong off)
 }
 
 static long
-readmem(ulong off, void *dst, long n, void *src, long size)
+readmem(usize off, void *dst, long n, void *src, long size)
 {
 	if(off >= size)
 		return 0;
@@ -1371,8 +1377,8 @@ devlinkread(Chan *c, void *db, int len, int off)
 	for(i = 0; i < l->nea; i++)
 		p = seprint(p, e, "%E ", l->eatab[i]);
 	p = seprint(p, e, "\n");
-	p = seprint(p, e, "npkt: %uld\n", l->npkt);
-	p = seprint(p, e, "resent: %uld\n", l->resent);
+	p = seprint(p, e, "npkt: %llud\n", l->npkt);
+	p = seprint(p, e, "resent: %llud\n", l->resent);
 	p = seprint(p, e, "flag: ");
 	p = aoeflag(p, e, l->flag);
 	p = seprint(p, e, "rttavg: %uld\n", Tk2ms(l->rttavg));

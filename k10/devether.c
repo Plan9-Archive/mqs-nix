@@ -177,7 +177,6 @@ etheroq(Ether* ether, Block* bp)
 {
 	int len, loopback;
 	Etherpkt *pkt;
-	Mpl pl;
 
 	ether->outpackets++;
 
@@ -193,23 +192,16 @@ etheroq(Ether* ether, Block* bp)
 	pkt = (Etherpkt*)bp->rp;
 	len = BLEN(bp);
 	loopback = memcmp(pkt->d, ether->ea, sizeof(pkt->d)) == 0;
-	if(loopback || memcmp(pkt->d, ether->bcast, sizeof(pkt->d)) == 0 || ether->prom){
-		pl = splhi();
-		if(loopback)
-			etheriq(ether, bp, -1);
-		else
-			etheriq(ether, bp, 0);
-		splx(pl);
+	if(loopback){
+		etheriq(ether, bp, -1);
+		return len;
 	}
 
-	if(!loopback){
-		qbwrite(ether->oq, bp);		/* botch: might block; should track overflows */
-		if(ether->transmit != nil)
-			ether->transmit(ether);
-	}else{
-	//	freeb(bp);
-	}
-
+	if(memcmp(pkt->d, ether->bcast, sizeof(pkt->d)) == 0 || ether->prom)
+		etheriq(ether, bp, 0);
+	qbwrite(ether->oq, bp);		/* botch: might block; should track overflows */
+	if(ether->transmit != nil)
+		ether->transmit(ether);
 	return len;
 }
 
@@ -311,29 +303,6 @@ addethercard(char* t, int (*r)(Ether*))
 }
 
 int
-parseether(uchar *to, char *from)
-{
-	char nip[4];
-	char *p;
-	int i;
-
-	p = from;
-	for(i = 0; i < Eaddrlen; i++){
-		if(*p == 0)
-			return -1;
-		nip[0] = *p++;
-		if(*p == 0)
-			return -1;
-		nip[1] = *p++;
-		nip[2] = 0;
-		to[i] = strtoul(nip, 0, 16);
-		if(*p == ':')
-			p++;
-	}
-	return 0;
-}
-
-int
 ethercfgmatch(Ether *e, Pcidev *p, uintmem port)
 {
 	if(e->port == 0 || e->port == port)
@@ -346,7 +315,7 @@ ethercfgmatch(Ether *e, Pcidev *p, uintmem port)
 static Ether*
 etherprobe(int cardno, int ctlrno)
 {
-	char buf[128], name[32], *type, *p, *e;
+	char name[32], *type;
 	int i, j, reset;
 	Ether *ether;
 	extern int eipfmt(Fmt*);
@@ -400,39 +369,31 @@ etherprobe(int cardno, int ctlrno)
 		return nil;
 	}
 
-	/*
-	 * IRQ2 doesn't really exist, it's used to gang the interrupt
-	 * controllers together. A device set to IRQ2 will appear on
-	 * the second interrupt controller as IRQ9.
-	 */
-	if(ether->irq == 2)
-		ether->irq = 9;
 	snprint(name, sizeof(name), "ether%d", ctlrno);
 
 	/*
 	 * If ether->irq is <0, it is a hack to indicate no interrupt
 	 * used by ethersink.
 	 */
-	if(ether->irq >= 0)
-		intrenable(ether->irq, ether->interrupt, ether, ether->tbdf, name);
-	e = buf + sizeof buf;
-	p = seprint(buf, e, "#l%d: %s: %dMbps port %#p irq %d tu %d",
-		ctlrno, cards[cardno].type, ether->mbps, ether->port, ether->irq, ether->mtu);
-	if(ether->mem)
-		p = seprint(p, e, " addr %#p", ether->mem);
-	seprint(p, e, " %E\n", ether->ea);
-	print("%s", buf);
+	if(ether->vector != nil)
+		vintrenable(ether->vector, name);
+	else if(ether->irq >= 0)
+		ether->vector = intrenable(ether->irq, ether->interrupt, ether, ether->tbdf, name);
+	print("#l%d: %s: %dMbps port %#p tbdf %T tu %d %E\n",
+		ctlrno, cards[cardno].type, ether->mbps, ether->port, ether->tbdf, ether->mtu, ether->ea);
 
 	j = ether->mbps;
+	if(j > 10000)
+		j = 10000;
 	if(j > 1000)
 		j *= 10;
 	for(i = 0; j >= 100; i++)
 		j /= 10;
 	i = 128*1024<<i;
 	netifinit(ether, name, Ntypes, i);
-	if(ether->oq == 0)
+	if(ether->oq == nil)
 		ether->oq = qopen(i, Qmsg, 0, 0);
-	if(ether->oq == 0)
+	if(ether->oq == nil)
 		panic("etherreset %s", name);
 	ether->alen = Eaddrlen;
 	memmove(ether->addr, ether->ea, Eaddrlen);
@@ -474,7 +435,6 @@ etherreset(void)
 static void
 ethershutdown(void)
 {
-	char name[32];
 	int i;
 	Ether *ether;
 
@@ -486,19 +446,16 @@ ethershutdown(void)
 			print("#l%d: no shutdown function\n", i);
 			continue;
 		}
-		snprint(name, sizeof(name), "ether%d", i);
-		if(ether->irq >= 0){
-		//	intrdisable(ether->irq, ether->interrupt, ether, ether->tbdf, name);
-		}
+		if(ether->vector != nil)
+			intrdisable(ether->vector);
 		(*ether->shutdown)(ether);
 	}
 }
 
-
 #define POLY 0xedb88320
 
 /* really slow 32 bit crc for ethers */
-uint
+u32int
 ethercrc(uchar *p, int len)
 {
 	int i, j;

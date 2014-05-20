@@ -56,7 +56,7 @@ archbcmlink(void)
 }
 
 int
-archether(uint ctlrno, Ether *ether)
+archether(unsigned ctlrno, Ether *ether)
 {
 	switch(ctlrno) {
 	case 0:

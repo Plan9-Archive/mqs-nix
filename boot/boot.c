@@ -96,10 +96,10 @@ boot(int argc, char *argv[])
 	 */
 	authentication(cpuflag);
 
-print("connect...");
 	/*
 	 *  connect to the root file system
 	 */
+	print("connect...");
 	fd = (*mp->connect)();
 	if(fd < 0)
 		fatal("can't connect to file server");
@@ -107,7 +107,6 @@ print("connect...");
 		if(cfs)
 			fd = (*cfs)(fd);
 	}
-print("\n");
 	print("version...");
 	buf[0] = '\0';
 	n = fversion(fd, 0, buf, sizeof buf);
@@ -261,6 +260,28 @@ HaveMethod:
 	return mp;
 }
 
+/* debugging: remove */
+static void
+dumpusbdrives(void)
+{
+	char *s;
+	int fd, i, n;
+	Dir *d, *dbuf;
+
+	fd = open("/dev", OREAD);
+	while((n = dirread(fd, &dbuf)) > 0){
+		for(i = 0; i < n; i++){
+			d = dbuf+i;
+			s = d->name;
+			if(s[0] == 's' && s[1] == 'd' && (s[2] == 'u' || s[2] == 'U'))
+				print("usbdrive %s\n", s);
+		}
+		free(dbuf);
+	}
+	close(fd);
+	sleep(20*1000);
+}
+
 static void
 usbbootdrive(void)
 {
@@ -280,24 +301,34 @@ usbbootdrive(void)
 		fprint(2, "usbbootdrive: open #S/sdctl: %r\n");
 		return;
 	}
-	if(fprint(fd, "config switch on spec u type loop/%s\n", usbdrv) == -1)
+	if(fprint(fd, "config switch on spec u type loop/%s\n", usbdrv) == -1){
 		fprint(2, "usbbootdrive: loopback: %r\n");
+		dumpusbdrives();
+	}
 	close(fd);
 }
 
 static void
 usbinit(void)
 {
-	char *s;
+	char *s, *t;
 	static char usbd[] = "/boot/usbd";
 
 	if(access("#u/usb/ctl", 0) >= 0 && bind("#u", "/dev", MAFTER) >= 0 &&
 	    access(usbd, AEXIST) >= 0){
-		run(usbd, "-m", "/dev", nil);
+		run(0, usbd, "-m", "/dev", nil);	/* may fail if no hubs */
 		s = getenv("drive0");
+		t = getenv("bootargs");
+		if(t == nil)
+			t = getenv("nobootprompt");
 		if(s != nil && strstr(s, " usb=") != nil)
 			usbbootdrive();
+		else if(t != nil && strstr(t, "#S/sdu") != nil){
+			print("warning: usb boot with drive0 %s but boot %s\n", s, t);
+			usbbootdrive();
+		}
 		free(s);
+		free(t);
 	}
 }
 
@@ -313,7 +344,7 @@ kbmap(void)
 		return;
 	if(bind("#κ", "/dev", MAFTER) < 0){
 		warning("can't bind #κ");
-		return;
+//		return;
 	}
 
 	in = open(f, OREAD);

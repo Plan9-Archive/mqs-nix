@@ -20,9 +20,10 @@ Pfmt(Fmt *f)
 int
 Rfmt(Fmt *f)
 {
-	extern int fmtR(Fmt*);
+	Rectangle r;
 
-	return fmtR(f);
+	r = va_arg(f->args, Rectangle);
+	return fmtprint(f, "[%d %d] [%d %d]", r.min.x, r.min.y, r.max.x, r.max.y);
 }
 
 void

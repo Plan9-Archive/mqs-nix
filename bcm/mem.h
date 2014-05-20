@@ -36,7 +36,6 @@
  */
 
 #define	KSEG0		0x80000000		/* kernel segment */
-#define	KSEG2		0x80000000		/* kernel segment (for the benefit of other kernels) */
 /* mask to check segment; good for 512MB dram */
 #define	KSEGM		0xE0000000
 #define	KZERO		KSEG0			/* kernel address space */
@@ -50,7 +49,6 @@
 
 #define	UZERO		0			/* user segment */
 #define	UTZERO		(UZERO+PGSZ)		/* user text start */
-#define	USEGSHIFT	PGSHIFT
 #define	USTKTOP		0x20000000			/* user segment end +1 */
 #define	USTKSIZE	(8*1024*1024)		/* user stack size */
 #define	TSTKTOP		(USTKTOP-USTKSIZE)	/* sysexec temporary stack */

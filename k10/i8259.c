@@ -129,31 +129,3 @@ i8259init(int vectorbase)
 
 	return vectorbase;
 }
-
-int
-i8259isr(int vno)
-{
-	int irq, isr;
-
-	if(vno < IdtPIC || vno > IdtPIC+15)
-		return 0;
-	irq = vno-IdtPIC;
-
-	/*
-	 * Collect the interrupt status,
-	 * acknowledge the interrupt and return whether
-	 * the acknowledged interrupt was the correct
-	 * one (this could be better but it's not really
-	 * used).
-	 */
-	ilock(&i8259lock);
-	isr = inb(Cntrl1+Isr);
-	outb(Cntrl1+Ocw2, Ocw2sel|Eoi);
-	if(irq >= 8){
-		isr |= inb(Cntrl2+Isr)<<8;
-		outb(Cntrl2+Ocw2, Ocw2sel|Eoi);
-	}
-	iunlock(&i8259lock);
-
-	return isr & (1<<irq);
-}

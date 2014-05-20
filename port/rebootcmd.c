@@ -58,7 +58,7 @@ rebootcmd(int argc, char *argv[])
 	Chan *c;
 	Exec exec;
 	ulong magic, text, rtext, entry, data, size;
-	uchar *p;
+	uchar *p, ulv[8];
 
 	if(argc == 0)
 		exit(0);
@@ -76,9 +76,10 @@ rebootcmd(int argc, char *argv[])
 	data = l2be(exec.data);
 	if(magic != AOUT_MAGIC)
 		error(Ebadexec);
-
+	if(magic & HDR_MAGIC)
+		readn(c, ulv, 8);
 	/* round text out to page boundary */
-	rtext = ROUNDUP(entry+text, 1<<USEGSHIFT) - entry;
+	rtext = ROUNDUP(entry+text, PGSZ) - entry;
 	size = rtext + data;
 	p = malloc(size);
 	if(p == nil)
@@ -97,6 +98,11 @@ rebootcmd(int argc, char *argv[])
 	setbootcmd(argc-1, argv+1);
 
 	reboot((void*)entry, p, size);
-
 	panic("return from reboot!");
+
+	poperror();
+	free(p);
+
+	cclose(c);
+	poperror();
 }

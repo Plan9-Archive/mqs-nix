@@ -20,7 +20,7 @@
 #define	idprint(...)	if(idebug)	print(__VA_ARGS__); else USED(idebug)
 #define	aprint(...)	if(adebug)	print(__VA_ARGS__); else USED(adebug)
 #define	Pciw64(x)	(uvlong)PCIWADDR(x)
-#define	Ticks		MACHP(0)->ticks
+#define	Ticks		sys->ticks
 
 /* copied from sdiahci */
 enum {
@@ -422,10 +422,10 @@ enum{
 
 /* following ahci */
 typedef struct {
-	ulong	dba;
-	ulong	dbahi;
-	ulong	pad;
-	ulong	count;
+	u32int	dba;
+	u32int	dbahi;
+	u32int	pad;
+	u32int	count;
 } Aprdt;
 
 typedef struct {
@@ -534,6 +534,8 @@ struct Ctlr {
 	Drive	drive[Nctlrdrv];
 	uint	ndrive;
 	uint	prderr;
+
+	void	*vector;
 };
 
 static	Ctlr	msctlr[Nctlr];
@@ -2020,15 +2022,13 @@ msenable(SDev *s)
 static int
 msdisable(SDev *s)
 {
-	char buf[32];
 	Ctlr *c;
 
 	c = s->ctlr;
 	ilock(c);
 //	disable(c->hba);
 	c->reg[Gctl] &= ~Intenable;
-	snprint(buf, sizeof buf, "%s (%s)", s->name, s->ifc->name);
-//	intrdisable(c->pci->intl, msinterrupt, c, c->pci->tbdf, buf);
+	intrdisable(c->vector);
 	c->enabled = 0;
 	iunlock(c);
 	return 1;
@@ -2122,7 +2122,7 @@ map(Pcidev *p, int bar)
 {
 	uintptr io;
 
-	io = p->mem[bar].bar & ~0xf;
+	io = p->mem[bar].bar & ~(uintmem)0xf;
 	return (uint*)vmap(io, p->mem[bar].size);
 }
 

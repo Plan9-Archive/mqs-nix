@@ -524,7 +524,7 @@ sdgen(Chan* c, char*, Dirtab*, int, int s, Dir* dp)
 	case Qtopdir:
 		if(s == DEVDOTDOT){
 			mkqid(&q, QID(0, 0, 0, Qtopdir), 0, QTDIR);
-			sprint(up->genbuf, "#%C", sddevtab.dc);
+			snprint(up->genbuf, sizeof up->genbuf, "#%C", sddevtab.dc);
 			devdir(c, q, up->genbuf, 0, eve, 0555, dp);
 			return 1;
 		}
@@ -572,7 +572,7 @@ sdgen(Chan* c, char*, Dirtab*, int, int s, Dir* dp)
 	case Qunitdir:
 		if(s == DEVDOTDOT){
 			mkqid(&q, QID(0, 0, 0, Qtopdir), 0, QTDIR);
-			sprint(up->genbuf, "#%C", sddevtab.dc);
+			snprint(up->genbuf, sizeof up->genbuf, "#%C", sddevtab.dc);
 			devdir(c, q, up->genbuf, 0, eve, 0555, dp);
 			return 1;
 		}
@@ -784,13 +784,13 @@ sdbio(Chan* c, int write, char* a, long len, uvlong off)
 	uvlong bno;
 
 	sdev = sdgetdev(DEV(c->qid));
+	if(sdev == nil)
+		error(Enonexist);
+	unit = sdev->unit[UNIT(c->qid)];
 	if(sdev == nil){
 		decref(&sdev->r);
 		error(Enonexist);
 	}
-	unit = sdev->unit[UNIT(c->qid)];
-	if(unit == nil)
-		error(Enonexist);
 
 	nchange = 0;
 	qlock(&unit->ctl);
@@ -1068,7 +1068,9 @@ sdfakescsi(SDreq *r)
 		 * Read capacity returns the LBA of the last sector.
 		 */
 		len = unit->sectors;
-		if(len > 0)
+		if(len >= 0xffffffff)
+			len = 0xffffffff;
+		else if(len > 0)
 			len--;
 		p = r->data;
 		*p++ = len>>24;

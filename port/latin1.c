@@ -46,7 +46,8 @@ unicode(Rune *k, int n)
  * failure, or something < -1 if n is too small.  In the latter case, the result
  * is minus the required n.
  */
-static	char	esctab[] = {'X', 5, 'Y', 7};
+static	char	esctab[] = {'X', 5, 5, 'Y', 7, 7, 'x', 7, 3};
+static	char	inset[] = "0123456789abcdefABCDEF";
 
 long
 latin1(Rune *k, int n)
@@ -55,10 +56,12 @@ latin1(Rune *k, int n)
 	int c, i;
 	char* p;
 
-	for(i = 0; i < nelem(esctab); i += 2)
+	for(i = 0; i < nelem(esctab); i += 3)
 		if(k[0] == esctab[i]){
 			if(n>=esctab[i+1])
 				return unicode(k, esctab[i+1]);
+			else if(n>=esctab[i+2] && strchr(inset, k[n-1]) == nil)
+				return unicode(k, n-1);
 			else
 				return -esctab[i+1];
 		}

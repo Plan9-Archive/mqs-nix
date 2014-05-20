@@ -19,6 +19,7 @@ struct Ioapic {
 
 struct Lapic {
 	int	machno;				/* APIC */
+	int	color;
 
 	u32int	lvt[7];
 	int	nlvt;
@@ -28,6 +29,9 @@ struct Lapic {
 	vlong	max;
 	vlong	min;
 	vlong	div;
+
+	Lock	vecalloclk;			/* allocated vectors */
+	uchar	vecalloc[256/8];
 };
 
 struct Apic {
@@ -39,7 +43,7 @@ struct Apic {
 enum {
 	Nbus		= 256,			/* must be 256 */
 	Napic		= 254,			/* xAPIC architectural limit */
-	Nrdt		= 64,
+	Nrdt		= 128,
 };
 
 /*
@@ -77,17 +81,23 @@ enum {
 	Im		= 0x00010000,		/* Interrupt Mask */
 };
 
-extern	Apic	xlapic[Napic];
-extern	Apic	xioapic[Napic];
-extern	Mach	*xlapicmachptr[Napic];		/* maintained, but unused */
+int	gsitoapicid(int, uint*);
+void	ioapicdump(void);
+Apic*	ioapicinit(int, int, uintmem);
+int	ioapicintrdisable(int);
+int	ioapicintrenable(Vctl*);
+void	ioapicintrinit(int, int, int, int, int, u32int);
+Apic*	ioapiclookup(uint);
+void	ioapiconline(void);
+void	lapicdump(void);
+int	lapiceoi(int);
+void	lapicinit(int, uintmem, int);
+void	lapicipi(int);
+Apic*	lapiclookup(uint);
+int	lapiconline(void);
+void	lapicpri(int);
+void	lapicsetcolor(int, int);
+void	lapicsipi(int, uintmem);
 
-#define l16get(p)	(((p)[1]<<8)|(p)[0])
-#define	l32get(p)	(((u32int)l16get(p+2)<<16)|l16get(p))
-#define	l64get(p)	(((u64int)l32get(p+4)<<32)|l32get(p))
-
-extern void lapicdump(void);
-extern void apictimerenab(void);
-extern void ioapicdump(void);
-
-extern int pcimsienable(Pcidev*, uvlong);
-extern int pcimsimask(Pcidev*, int);
+int	pcimsienable(Pcidev*, uvlong);
+int	pcimsimask(Pcidev*, int);

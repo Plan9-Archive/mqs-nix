@@ -198,13 +198,16 @@ name2speed(char *name)
 static int
 name2ttype(char *name)
 {
+	char *p;
 	int i;
 
 	for(i = 0; i < nelem(ttname); i++)
 		if(strcmp(name, ttname[i]) == 0)
 			return i;
 	/* may be a std. USB ep. type */
-	i = strtol(name, nil, 0);
+	i = strtol(name, &p, 0);
+	if(*p != 0)
+		return Tnone;
 	switch(i+1){
 	case Tctl:
 	case Tiso:
@@ -694,8 +697,8 @@ hciprobe(int cardno, int ctlrno)
 	 * controllers together. A device set to IRQ2 will appear on
 	 * the second interrupt controller as IRQ9.
 	 */
-/*port*/	if(hp->irq == 2)
-/*port*/		hp->irq = 9;
+	if(hp->irq == 2)
+		hp->irq = 9;
 	snprint(name, sizeof(name), "usb%s", hcitypes[cardno].type);
 	intrenable(hp->irq, hp->interrupt, hp, hp->tbdf, name);
 
@@ -1297,8 +1300,8 @@ epctl(Ep *ep, Chan *c, void *a, long n)
 		break;
 	case CMtmout:
 		deprint("usb epctl %s\n", cb->f[0]);
-		if(ep->ttype == Tiso || ep->ttype == Tctl)
-			error("ctl ignored for this endpoint type");
+		if(ep->ttype == Tiso /*|| ep->ttype == Tctl*/)
+			error("timeout ignored for this endpoint type");
 		ep->tmout = strtoul(cb->f[1], nil, 0);
 		if(ep->tmout != 0 && ep->tmout < Xfertmout)
 			ep->tmout = Xfertmout;

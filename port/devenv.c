@@ -43,13 +43,13 @@ envgen(Chan *c, char *name, Dirtab*, int, int s, Dir *dp)
 
 	eg = envgrp(c);
 	rlock(eg);
-	e = 0;
+	e = nil;
 	if(name)
 		e = envlookup(eg, name, -1);
 	else if(s < eg->nent)
 		e = eg->ent[s];
 
-	if(e == 0) {
+	if(e == nil) {
 		runlock(eg);
 		return -1;
 	}
@@ -114,7 +114,7 @@ envopen(Chan *c, int omode)
 		else
 			rlock(eg);
 		e = envlookup(eg, nil, c->qid.path);
-		if(e == 0) {
+		if(e == nil) {
 			if(trunc)
 				wunlock(eg);
 			else
@@ -124,7 +124,7 @@ envopen(Chan *c, int omode)
 		if(trunc && e->value) {
 			e->qid.vers++;
 			free(e->value);
-			e->value = 0;
+			e->value = nil;
 			e->len = 0;
 		}
 		if(trunc)
@@ -200,7 +200,7 @@ envremove(Chan *c)
 
 	eg = envgrp(c);
 	wlock(eg);
-	e = 0;
+	e = nil;
 	for(i=0; i<eg->nent; i++){
 		if(eg->ent[i]->qid.path == c->qid.path){
 			e = eg->ent[i];
@@ -211,7 +211,7 @@ envremove(Chan *c)
 		}
 	}
 	wunlock(eg);
-	if(e == 0)
+	if(e == nil)
 		error(Enonexist);
 	free(e->name);
 	if(e->value)
@@ -244,7 +244,7 @@ envread(Chan *c, void *a, long n, vlong off)
 	eg = envgrp(c);
 	rlock(eg);
 	e = envlookup(eg, nil, c->qid.path);
-	if(e == 0) {
+	if(e == nil) {
 		runlock(eg);
 		error(Enonexist);
 	}
@@ -279,7 +279,7 @@ envwrite(Chan *c, void *a, long n, vlong off)
 	eg = envgrp(c);
 	wlock(eg);
 	e = envlookup(eg, nil, c->qid.path);
-	if(e == 0) {
+	if(e == nil) {
 		wunlock(eg);
 		error(Enonexist);
 	}
@@ -396,45 +396,25 @@ ksetenv(char *ename, char *eval, int conf)
 	cclose(c);
 }
 
-/*
- * Return a copy of configuration environment as a sequence of strings.
- * The strings alternate between name and value.  A zero length name string
- * indicates the end of the list
- */
-char *
-getconfenv(void)
+/* copy configuration environment to the given buffer. */
+char*
+confenv(char *p, char *e)
 {
-	Egrp *eg = &confegrp;
-	Evalue *e;
-	char *p, *q;
-	int i, n;
+	int i;
+	Egrp *eg;
+	Evalue *v;
 
+	eg = &confegrp;
 	rlock(eg);
 	if(waserror()) {
 		runlock(eg);
 		nexterror();
 	}
-
-	/* determine size */
-	n = 0;
 	for(i=0; i<eg->nent; i++){
-		e = eg->ent[i];
-		n += strlen(e->name) + e->len + 2;
+		v = eg->ent[i];
+		p = seprint(p, e, "%s=%*s\n", v->name, v->len, v->value);
 	}
-	p = malloc(n + 1);
-	if(p == nil)
-		error(Enomem);
-	q = p;
-	for(i=0; i<eg->nent; i++){
-		e = eg->ent[i];
-		strcpy(q, e->name);
-		q += strlen(q) + 1;
-		memmove(q, e->value, e->len);
-		q[e->len] = 0;
-		/* move up to the first null */
-		q += strlen(q) + 1;
-	}
-	*q = 0;
+	*p = 0;
 
 	poperror();
 	runlock(eg);

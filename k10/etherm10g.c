@@ -1,6 +1,6 @@
 /*
  *	myricom 10 gbit ethernet
- *	© 2007—13 erik quanstrom, coraid, inc.
+ *	© 2007—14 erik quanstrom, coraid, inc.
  */
 
 #include "u.h"
@@ -22,8 +22,8 @@
 #define if64(...)		(sizeof(uintmem) == 8? (__VA_ARGS__): 0)
 #define pbit32h(x)	if64(pbit32((uvlong)x >> 32))
 
-//#include "etherm10g2k.i"
-#include "etherm10g4k.i"
+//#include "/sys/lib/firmware/etherm10g2k.i"
+#include "/sys/lib/firmware/etherm10g4k.i"
 
 enum {
 	Epromsz	= 256,
@@ -480,18 +480,18 @@ cmd(Ctlr *c, int type, int sz, uvlong data)
 	coherence();
 	memmove(c->ram + Cmdoff, buf, sizeof buf);
 
-	if(waserror())
-		nexterror();
 	for(i = 0; i < 15; i++){
 		if(cmd->i[1] != Noconf){
-			poperror();
 			i = gbit32(cmd->c);
 			qunlock(&c->cmdl);
 			if(cmd->i[1] != 0)
 				dprint("[%ux]", i);
 			return i;
 		}
-		tsleep(&up->sleep, return0, 0, 1);
+		if(!waserror()){
+			tsleep(&up->sleep, return0, 0, 1);
+			poperror();
+		}
 	}
 	qunlock(&c->cmdl);
 	print("m10g: cmd timeout [%ux %ux] cmd=%d\n", cmd->i[0], cmd->i[1], type);
@@ -518,18 +518,18 @@ maccmd(Ctlr *c, int type, uchar *m)
 	coherence();
 	memmove(c->ram + Cmdoff, buf, sizeof buf);
 
-	if(waserror())
-		nexterror();
 	for(i = 0; i < 15; i++){
 		if(cmd->i[1] != Noconf){
-			poperror();
 			i = gbit32(cmd->c);
 			qunlock(&c->cmdl);
 			if(cmd->i[1] != 0)
 				dprint("[%ux]", i);
 			return i;
 		}
-		tsleep(&up->sleep, return0, 0, 1);
+		if(!waserror()){
+			tsleep(&up->sleep, return0, 0, 1);
+			poperror();
+		}
 	}
 	qunlock(&c->cmdl);
 	print("m10g: maccmd timeout [%ux %ux] cmd=%d\n", cmd->i[0], cmd->i[1], type);
@@ -560,17 +560,17 @@ dmatestcmd(Ctlr *c, int type, uvlong addr, int len)
 	coherence();
 	memmove(c->ram + Cmdoff, buf, sizeof buf);
 
-	if(waserror())
-		nexterror();
 	for(i = 0; i < 15; i++){
 		if(c->cmd->i[1] != Noconf){
 			i = gbit32(c->cmd->c);
 			if(i == 0)
 				error(Eio);
-			poperror();
 			return i;
 		}
-		tsleep(&up->sleep, return0, 0, 5);
+		if(!waserror()){
+			tsleep(&up->sleep, return0, 0, 1);
+			poperror();
+		}
 	}
 	error(Etimeout);
 	return ~0;
@@ -593,14 +593,13 @@ rdmacmd(Ctlr *c, int on)
 	prepcmd(buf, 6);
 	memmove(c->ram + Rdmaoff, buf, sizeof buf);
 
-	if(waserror())
-		nexterror();
 	for(i = 0; i < 20; i++){
-		if(c->cmd->i[0] == Noconf){
-			poperror();
+		if(c->cmd->i[0] == Noconf)
 			return gbit32(c->cmd->c);
+		if(!waserror()){
+			tsleep(&up->sleep, return0, 0, 1);
+			poperror();
 		}
-		tsleep(&up->sleep, return0, 0, 1);
 	}
 	error(Etimeout);
 	print("m10g: rdmacmd timeout\n");
@@ -763,7 +762,6 @@ reset(Ether *e, Ctlr *c)
 	if(waserror()){
 		print("m10g: reset error\n");
 		nexterror();
-		return -1;
 	}
 
 	chkfw(c);
@@ -825,7 +823,7 @@ setmem(Pcidev *p, Ctlr *c)
 	if(c->ramsz > p->mem[0].size)
 		return -1;
 
-	raddr = p->mem[0].bar & ~0x0F;
+	raddr = p->mem[0].bar & ~(uintmem)0xf;
 	mem = vmappat(raddr, p->mem[0].size, PATWC);
 	if(mem == nil){
 		print("m10g: can't map %P\n", (uintmem)p->mem[0].bar);
@@ -1355,8 +1353,8 @@ m10gattach(Ether *e)
 	}
 	c->state = Runed;
 	m10ginterrupt(nil, e);		/* botch: racy */
-	qunlock(c);
 	poperror();
+	qunlock(c);
 }
 
 static int
@@ -1510,8 +1508,8 @@ m10gctl(Ether *e, void *v, long n)
 	default:
 		error(Ebadarg);
 	}
-	free(c);
 	poperror();
+	free(c);
 	return n;
 }
 

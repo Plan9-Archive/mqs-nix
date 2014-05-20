@@ -69,13 +69,13 @@ timeconv(Fmt *f)
 		sign = "";
 	if (t > Onesecond){
 		t += OneRound;
-		sprint(buf, "%s%d.%.3ds", sign, (int)(t / Onesecond),
+		snprint(buf, sizeof buf, "%s%d.%.3ds", sign, (int)(t / Onesecond),
 			(int)(t % Onesecond)/Onemillisecond);
 	}else if (t > Onemillisecond)
-		sprint(buf, "%s%d.%.3dms", sign, (int)(t / Onemillisecond),
+		snprint(buf, sizeof buf, "%s%d.%.3dms", sign, (int)(t / Onemillisecond),
 			(int)(t % Onemillisecond));
 	else
-		sprint(buf, "%s%dµs", sign, (int)t);
+		snprint(buf, sizeof buf, "%s%dµs", sign, (int)t);
 	return fmtstrcpy(f, buf);
 }
 
@@ -90,7 +90,7 @@ edflock(Proc *p)
 		return nil;
 	ilock(&thelock);
 	if((e = p->edf) && (e->flags & Admitted)){
-		thelock.pc = getcallerpc(&p);
+		locksetpc(&thelock, getcallerpc(&p));
 #ifdef EDFCYCLES
 		edfcycles -= lcycles();
 #endif
@@ -131,7 +131,6 @@ static void
 deadlineintr(Ureg*, Timer *t)
 {
 	/* Proc reached deadline */
-	extern int panicking;
 	Proc *p;
 
 	if(panicking || active.exiting)
@@ -206,7 +205,6 @@ static void
 releaseintr(Ureg*, Timer *t)
 {
 	Proc *p;
-	extern int panicking;
 	Sched *sch;
 	Schedq *rq;
 

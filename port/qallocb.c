@@ -22,6 +22,8 @@ struct Quick {
 	Lock;
 	int	sz;
 	Block	*free;
+	int	count;
+	uvlong	ticks;
 };
 
 static	Quick	qtab[] = {
@@ -65,10 +67,12 @@ static void*
 {
 	uchar *va, *ve;
 	int i, bsz, asz, color;
+	uvlong t;
 	uintmem pa;
 	Block *b;
 	Quick *q;
 
+	t = fastticks(nil);
 	for(i = 0; i < nelem(qtab); i++)
 		if(size <= qtab[i].sz)
 			goto found;
@@ -95,7 +99,11 @@ found:
 	}
 	b = q->free;
 	q->free = b->next;
-	iunlock(q);
+
+	q->count++;
+	q->ticks += fastticks(nil)-t;
+
+	iunlock(q);			/* not counted! */
 
 	b->next = nil;
 	b->lim = b->rp + size;		/* lie like a dog (qio counts alloc'd bytes .. pfft.) */
@@ -220,4 +228,18 @@ void
 iallocsummary(void)
 {
 	print("ialloc %P/%P\n", ialloc.bytes, sys->ialloc);
+}
+
+char*
+allocbstats(char *p, char *e)
+{
+	int i;
+	Quick *q;
+
+	p = seprint(p, e, "ialloc %P/%P\n", ialloc.bytes, sys->ialloc);
+	for(i = 0; i < nelem(qtab); i++){
+		q = qtab+i;
+		p = seprint(p, e, "allocb %d:	%ud	%llud\n", q->sz, q->count, q->ticks);
+	}
+	return p;
 }

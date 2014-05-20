@@ -81,6 +81,8 @@ uartenable(Uart *p)
 	p->cts = 1;
 	p->ctsbackoff = 0;
 
+//	if(p->fifo == 0)
+		uartctl(p, "i1");			/* controller expected to reject this if not available */
 	if(p->bits == 0)
 		uartctl(p, "l8");
 	if(p->stop == 0)
@@ -246,15 +248,15 @@ uartreset(void)
 	p = uartlist;
 	for(i = 0; i < uartnuart; i++){
 		/* 3 directory entries per port */
-		sprint(dp->name, "eia%d", i);
+		snprint(dp->name, sizeof dp->name, "eia%d", i);
 		dp->qid.path = UARTQID(i, Qdata);
 		dp->perm = 0660;
 		dp++;
-		sprint(dp->name, "eia%dctl", i);
+		snprint(dp->name, sizeof dp->name, "eia%dctl", i);
 		dp->qid.path = UARTQID(i, Qctl);
 		dp->perm = 0660;
 		dp++;
-		sprint(dp->name, "eia%dstatus", i);
+		snprint(dp->name, sizeof dp->name, "eia%dstatus", i);
 		dp->qid.path = UARTQID(i, Qstat);
 		dp->perm = 0444;
 		dp++;
@@ -433,7 +435,7 @@ setupcons(Uart *p, int on)
 		}
 		p->putc = kbdcr2nl;
 		addkbdq(p->iq, -1);
-		addconsdev(p->oq, uartputs, 2, 0);
+		addconsdev(p->oq, uartputs, 2, Csync|Ciprint|Cntorn);
 //		consuart = p;
 		p->opens++;
 		p->console = 1;
@@ -865,7 +867,7 @@ uartputs(char *s, int n)
 	char *e;
 	Uart *u;
 
-	if((u = consuart) == nil || u->phys->getc == nil)
+	if((u = consuart) == nil || u->phys->putc == nil)
 		return;
 
 	e = s+n;

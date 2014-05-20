@@ -196,7 +196,7 @@ struct Qio
 	Ed*	ed;		/* to place Tds on it */
 	int	sched;		/* queue number (intr/iso) */
 	int	toggle;		/* Tddata0/Tddata1 */
-	ulong	usbid;		/* device/endpoint address */
+	u32int	usbid;		/* device/endpoint address */
 	int	tok;		/* Tdsetup, Tdtokin, Tdtokout */
 	long	iotime;		/* last I/O time; to hold interrupt polls */
 	int	debug;		/* for the endpoint */
@@ -240,7 +240,7 @@ struct Td
 	Ep*	ep;		/* using this Td for I/O */
 	Qio*	io;		/* using this Td for I/O */
 	Block*	bp;		/* data for this Td */
-	ulong	nbytes;		/* bytes in this Td */
+	u32int	nbytes;		/* bytes in this Td */
 	u32int	cbp0;		/* initial value for cbp */
 	int	last;		/* true for last Td in Qio */
 };
@@ -395,7 +395,7 @@ pa2ptr(uintmem pa)
 {
 	if(pa == 0)
 		return nil;
-	else if(pa > 0xffffffff)
+	else if(sizeof(pa) > 4 && pa > 0xffffffff)
 		panic("usb: ohci: highmem pa %#P", pa);
 	return KADDR(pa);
 }
@@ -408,9 +408,66 @@ ptr2pa(void *p)
 	if(p == nil)
 		return 0;
 	pa = PADDR(p);
-	if(pa > 0xffffffff)
-		panic("usb: ohci: highmemptr %#p", p);
+	if(sizeof(pa) > 4 && pa > 0xffffffff)
+		panic("usb: ohci: highmemptr %#P", pa);
 	return pa;
+}
+
+enum {
+	Hdrspc		= 64,		/* leave room for high-level headers */
+	Bdead		= 0x51494F42,	/* "QIOB" */
+//	Align		= BLOCKALIGN,
+};
+
+/* this is the guts of ../port/qallocb.c */
+static Block*
+binit(uchar *p, int size, uchar** next)
+{
+	int n;
+	Block *b;
+
+	n = Align + ROUNDUP(size+Hdrspc, Align) + sizeof(Block);
+	b = (Block*)(p + n - sizeof(Block));	/* block at end of allocated space */
+	b->base = p;
+	b->next = nil;
+	b->list = nil;
+	b->free = nil;
+	b->flag = 0;
+
+	/* align base and bounds of data */
+	b->lim = (uchar*)(PTR2UINT(b) & ~(Align-1));
+
+	/* align start of writable data, leaving space below for added headers */
+	b->rp = b->lim - ROUNDUP(size, Align);
+	b->wp = b->rp;
+
+	if(b->rp < b->base || b->lim - b->rp < size)
+		panic("binit");
+	if(next != nil)
+		*next = p + n;
+	return b;
+}
+
+/*
+ * allocb may use memory outside the normal malloc arena,
+ * and therefore above 4G.  this is quite gross, and probablly
+ * not even an appropriate use for a Block*.
+ */
+static Block*
+loallocb(int size)
+{
+	uchar *p;
+
+	p = malloc(Align + ROUNDUP(size+Hdrspc, Align) + sizeof(Block));
+	assert(PADDR(p) <= 0xffffffff);
+	return binit(p, size, nil);
+}
+
+static void
+lofreeb(Block *b)
+{
+	if(b != nil)
+		free(b->base);
 }
 
 static void
@@ -524,9 +581,9 @@ unlinkbulk(Ctlr *ctlr, Ed *ed)
 }
 
 static void
-edsetaddr(Ed *ed, ulong addr)
+edsetaddr(Ed *ed, u32int addr)
 {
-	ulong ctrl;
+	u32int ctrl;
 
 	ctrl = ed->ctrl & ~((Epmax<<7)|Devmax);
 	ctrl |= (addr & ((Epmax<<7)|Devmax));
@@ -563,7 +620,7 @@ edmaxpkt(Ed *ed)
 static void
 edsetmaxpkt(Ed *ed, int m)
 {
-	ulong c;
+	u32int c;
 
 	c = ed->ctrl & ~(Edmpsmask << Edmpsshift);
 	ed->ctrl = c | ((m&Edmpsmask) << Edmpsshift);
@@ -587,7 +644,7 @@ lomallocalign(usize sz, usize align)
 	void *va;
 
 	va = mallocalign(sz, align, 0, 0);
-	if(PADDR(va) > 0xffffffff)
+	if(sizeof(uintptr) >= 8 && (uintmem)PADDR(va) > 0xffffffffull)
 		panic("usb: ohci: lomallocalign: mallocalign gives high mem %#p", va);
 	return va;
 }
@@ -630,7 +687,7 @@ tdfree(Td *td)
 {
 	if(td == nil)
 		return;
-	freeb(td->bp);
+	lofreeb(td->bp);
 	td->bp = nil;
 	lock(&tdpool);
 	if(td->nexttd == 0x77777777)
@@ -857,7 +914,7 @@ seprinttd(char *s, char *e, Td *td, int iso)
 	}
 	s = seprint(s, e, " cbp0 %#.8ux cbp %#.8ux next %#.8ux be %#.8ux %s",
 		td->cbp0, td->cbp, td->nexttd, td->be, td->last ? "last" : "");
-	s = seprint(s, e, "\n\t\t%ld bytes", td->nbytes);
+	s = seprint(s, e, "\n\t\t%d bytes", td->nbytes);
 	if((bp = td->bp) != nil){
 		s = seprint(s, e, " rp %#p wp %#p ", bp->rp, bp->wp);
 		if(BLEN(bp) > 0)
@@ -944,7 +1001,7 @@ static char*
 seprintio(char *s, char *e, Qio *io, char *pref)
 {
 	s = seprint(s, e, "%s qio %#p ed %#p", pref, io, io->ed);
-	s = seprint(s, e, " tog %d iot %ld err %s id %#ulx",
+	s = seprint(s, e, " tog %d iot %ld err %s id %#ux",
 		io->toggle, io->iotime, io->err, io->usbid);
 	s = seprinttdtok(s, e, io->tok);
 	s = seprint(s, e, " %s\n", iosname[io->state]);
@@ -987,7 +1044,7 @@ seprintep(char* s, char* e, Ep *ep)
 }
 
 static char*
-seprintctl(char *s, char *se, ulong ctl)
+seprintctl(char *s, char *se, u32int ctl)
 {
 	s = seprint(s, se, "en=");
 	if((ctl&Cple) != 0)
@@ -1065,7 +1122,7 @@ static void
 isodtdinit(Ep *ep, Isoio *iso, Td *td)
 {
 	Block *bp;
-	long size;
+	u32int size;
 	int i;
 
 	bp = td->bp;
@@ -1076,7 +1133,7 @@ isodtdinit(Ep *ep, Isoio *iso, Td *td)
 	if(size > ep->maxpkt){
 		print("ohci: ep%d.%d: size > maxpkt\n",
 			ep->dev->nb, ep->nb);
-		print("size = %uld max = %ld\n", size, ep->maxpkt);
+		print("size = %ud max = %ld\n", size, ep->maxpkt);
 		size = ep->maxpkt;
 	}
 	td->nbytes = size;
@@ -1350,12 +1407,12 @@ epgettd(Ep *ep, Qio *io, Td **dtdp, int flags, void *a, int count)
 	Block *bp;
 
 	if(count <= PGSZ)
-		bp = allocb(count);
+		bp = loallocb(count);
 	else{
 		if(count > 2*PGSZ)
 			panic("ohci: transfer > two pages");
 		/* maximum of one physical page crossing allowed */
-		bp = allocb(count+PGSZ);
+		bp = loallocb(count+PGSZ);
 		bp->rp = (uchar*)ROUNDUP((uintptr)bp->rp, PGSZ);
 		bp->wp = bp->rp;
 	}
@@ -1777,7 +1834,7 @@ static long
 putsamples(Ctlr *ctlr, Ep *ep, Isoio *iso, uchar *b, long count)
 {
 	Td *td;
-	ulong n;
+	uint n;
 
 	td = pa2ptr(iso->ed->tail);
 	n = count;
@@ -2002,14 +2059,14 @@ isoopen(Ctlr *ctlr, Ep *ep)
 		td = tdalloc();
 		td->ep = ep;
 		td->io = iso;
-		td->bp = allocb(ep->maxpkt);
+		td->bp = loallocb(ep->maxpkt);
 		td->anext = iso->atds;		/* link as avail */
 		iso->atds = td;
 		td->next = edtds;
 		edtds = td;
 	}
 	newed(ctlr, ep, iso, "iso");		/* allocates a dummy td */
-	iso->ed->tds->bp = allocb(ep->maxpkt);	/* but not its block */
+	iso->ed->tds->bp = loallocb(ep->maxpkt);	/* but not its block */
 	iso->ed->tds->next = edtds;
 	isodtdinit(ep, iso, iso->ed->tds);
 }
@@ -2382,7 +2439,7 @@ scanpci(void)
 		 */
 		if(p->ccrb != 0xc || p->ccru != 3 || p->ccrp != 0x10)
 			continue;
-		pa = p->mem[0].bar & ~0x0F;
+		pa = p->mem[0].bar & ~(uintmem)0xf;
 		if(p->intl == 0xFF || p->intl == 0) {
 			print("usb: ohci: no irq assigned for port %#P\n", pa);
 			continue;
@@ -2481,7 +2538,6 @@ ohcimeminit(Ctlr *ctlr)
 	hcca = lomallocalign(sizeof(Hcca), 256);
 	if(hcca == nil)
 		panic("usbhreset: no memory for Hcca");
-	memset(hcca, 0, sizeof(*hcca));
 	ctlr->hcca = hcca;
 
 	mkqhtree(ctlr);

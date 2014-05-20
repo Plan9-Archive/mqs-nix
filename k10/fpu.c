@@ -490,14 +490,14 @@ fpuinit(void)
 	/*
 	 * It's assumed there is an integrated FPU, so Em is cleared;
 	 */
-	r = cr0get();
+	r = getcr0();
 	r &= ~(Ts|Em);
 	r |= Ne|Mp;
-	cr0put(r);
+	putcr0(r);
 
-	r = cr4get();
+	r = getcr4();
 	r |= Osxmmexcpt|Osfxsr;
-	cr4put(r);
+	putcr4(r);
 
 	_fninit();
 	fxsave = (Fxsave*)((PTR2UINT(buf) + 15) & ~15);
@@ -511,13 +511,10 @@ fpuinit(void)
 	m->mxcsr = (Rn|Pm|Um|Dm) & m->mxcsrmask;
 	_stts();
 
-	if(m->machno != 0)
-		return;
-
 	/*
 	 * Set up the exception handlers.
 	 */
-	trapenable(IdtNM, fpunm, 0, "#NM");
-	trapenable(IdtMF, fpumf, 0, "#MF");
-	trapenable(IdtXF, fpuxf, 0, "#XF");
+	trapenable(IdtNM, fpunm, nil, "#NM");
+	trapenable(IdtMF, fpumf, nil, "#MF");
+	trapenable(IdtXF, fpuxf, nil, "#XF");
 }

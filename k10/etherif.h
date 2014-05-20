@@ -13,6 +13,7 @@ typedef struct Ether Ether;
 struct Ether {
 	Pciconf;			/* hardware info */
 	Netif;
+	void	*vector;
 
 	int	ctlrno;
 	uchar	ea[Eaddrlen];
@@ -39,7 +40,7 @@ struct Etherpkt
 
 Block*	etheriq(Ether*, Block*, int);
 void	addethercard(char*, int(*)(Ether*));
-uint	ethercrc(uchar*, int);
+u32int	ethercrc(uchar*, int);
 int	parseether(uchar*, char*);
 int	ethercfgmatch(Ether*, Pcidev*, uintmem);
 

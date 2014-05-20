@@ -129,7 +129,7 @@ screenaperture(int size, int align)
 	 */
 	size = ROUNDUP(size, PGSZ);
 	scr->paddr = adralloc(0, size, PGSZ, Amemory, Mfree, 0);
-	if(scr->paddr == 0)
+	if(scr->paddr == ~0ull)
 		return -1;
 	if(scr->paddr > 0xffffffffull)
 		print("screen mapped high %#P\n", scr->paddr);
@@ -523,7 +523,7 @@ vgalinearpci(VGAscr *scr)
 			best = i;
 	}
 	if(best >= 0){
-		paddr = p->mem[best].bar & ~0x0F;
+		paddr = p->mem[best].bar & ~(uintmem)0xf;
 		size = p->mem[best].size;
 		vgalinearaddr(scr, paddr, size);
 		return;

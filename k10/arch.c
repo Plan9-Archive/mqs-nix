@@ -11,31 +11,6 @@
 #include "fns.h"
 #include "../port/error.h"
 
-int
-incref(Ref *r)
-{
-	int x;
-
-	lock(r);
-	x = ++r->ref;
-	unlock(r);
-	return x;
-}
-
-int
-decref(Ref *r)
-{
-	int x;
-
-	lock(r);
-	x = --r->ref;
-	unlock(r);
-	if(x < 0)
-		panic("decref pc=%#p", getcallerpc(&r));
-
-	return x;
-}
-
 void
 procrestore(Proc *p)
 {
@@ -60,11 +35,11 @@ procsave(Proc *p)
 {
 	uvlong t;
 
-	cycles(&t);
-	p->pcycles += t;
-
 	fpuprocsave(p);
 	mmuflushtlb(m->pml4->pa);
+
+	cycles(&t);
+	p->pcycles += t;
 }
 
 static void

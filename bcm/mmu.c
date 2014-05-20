@@ -190,8 +190,8 @@ mmurelease(Proc* proc)
 			panic("mmurelease: page->ref %d", page->ref);
 		pagechainhead(page);
 	}
-//	if(proc->mmul2cache != nil)
-//		pagewake();
+	if(proc->mmul2cache != nil)
+		pagewake();
 	proc->mmul2cache = nil;
 /**/	proc->newtlb = 0;
 
@@ -221,7 +221,7 @@ putmmu(uintptr va, uintptr pa, Page* page)
 		/* wasteful - l2 pages only have 256 entries - fix */
 		if(up->mmul2cache == nil){
 			/* auxpg since we don't need much? memset if so */
-			pg = newpage(1, 0, 0, PGSHIFT, -1);
+			pg = newpage(1, 0, 0, PGSHIFT);
 			pg->va = VA(kmap(pg));
 		}
 		else{

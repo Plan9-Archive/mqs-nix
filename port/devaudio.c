@@ -193,7 +193,7 @@ audioread(Chan *c, void *a, long n, vlong off)
 	adev = ac->adev;
 
 	fn = nil;
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 	case Qdir:
 		audiodir[Qaudio].length = adev->buffered ? adev->buffered(adev) : 0;
 		return devdirread(c, a, n, audiodir, nelem(audiodir), devgen);
@@ -215,7 +215,7 @@ audioread(Chan *c, void *a, long n, vlong off)
 		qunlock(ac);
 		nexterror();
 	}
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 	case Qaudiostat:
 	case Qvolume:
 		/* generate the text on first read */
@@ -252,7 +252,7 @@ audiowrite(Chan *c, void *a, long n, vlong off)
 	adev = ac->adev;
 
 	fn = nil;
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 	case Qaudio:
 		fn = adev->write;
 		break;
@@ -271,7 +271,7 @@ audiowrite(Chan *c, void *a, long n, vlong off)
 		qunlock(ac);
 		nexterror();
 	}
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 	case Qaudioctl:
 	case Qvolume:
 		if(n >= sizeof(ac->buf))
@@ -341,7 +341,7 @@ audiostat(Chan *c, uchar *dp, long n)
 
 	ac = c->aux;
 	adev = ac->adev;
-	if((ulong)c->qid.path == Qaudio)
+	if(c->qid.path == Qaudio)
 		audiodir[Qaudio].length = adev->buffered ? adev->buffered(adev) : 0;
 	return devstat(c, dp, n, audiodir, nelem(audiodir), devgen);
 }
@@ -427,10 +427,9 @@ genaudiovolwrite(Audio *adev, void *a, long n, vlong,
 		for(i = 0; vol[i].name != 0; i++){
 			if(vol[i].cap && (vol[i].cap & caps) == 0)
 				continue;
-			if(cistrcmp(vol[i].name, tok[0]))
+			if(cistrcmp(vol[i].name, tok[0]) != 0)
 				continue;
-	
-			if((ntok>2) && (!cistrcmp(tok[1], "out") || !cistrcmp(tok[1], "in")))
+			if(ntok > 2 && (cistrcmp(tok[1], "out") == 0 || !cistrcmp(tok[1], "in") == 0))
 				memmove(tok+1, tok+2, --ntok);
 
 			v[0] = 0;

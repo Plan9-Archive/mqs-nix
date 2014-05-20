@@ -220,7 +220,7 @@ mntversion(Chan *c, u32int msize, char *version, usize returnlen)
 	mnt->version = nil;
 	kstrdup(&mnt->version, f.version);
 	mnt->id = mntalloc.id++;
-	mnt->q = qopen(10*MAXRPC, 0, nil, nil);
+	mnt->q = qopen(16*MAXRPC, 0, nil, nil);
 	mnt->msize = f.msize;
 	unlock(&mntalloc);
 
@@ -1100,7 +1100,7 @@ mntfree(Mntrpc *r)
 	if(r->b != nil)
 		freeblist(r->b);
 	lock(&mntalloc);
-	if(mntalloc.nrpcfree >= 10){
+	if(mntalloc.nrpcfree >= 16){
 		free(r->rpc);
 		freetag(r->request.tag);
 		free(r);

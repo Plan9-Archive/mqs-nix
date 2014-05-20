@@ -1,5 +1,5 @@
 /*
- * Intel 8256[367], 8257[1-9], 8258[03], i350
+ * Intel 8256[367], 8257[1-9], 8258[03], i21[01], i350
  *	Gigabit Ethernet PCI-Express Controllers
  * Coraid EtherDrive® hba
  */
@@ -31,7 +31,7 @@ enum {
 	Fla		= 0x001c,	/* Flash Access */
 	Mdic		= 0x0020,	/* MDI Control */
 	Fcal		= 0x0028,	/* Flow Control Address Low */
-	Fcah		= 0x002C,	/* Flow Control Address High */
+	Fcah		= 0x002c,	/* Flow Control Address High */
 	Fct		= 0x0030,	/* Flow Control Type */
 	Kumctrlsta	= 0x0034,	/* Kumeran Control and Status Register */
 	Connsw		= 0x0034,	/* copper / fiber switch control; 82575/82576 */
@@ -39,19 +39,22 @@ enum {
 	Fcttv		= 0x0170,	/* Flow Control Transmit Timer Value */
 	Txcw		= 0x0178,	/* Transmit Configuration Word */
 	Rxcw		= 0x0180,	/* Receive Configuration Word */
-	Ledctl		= 0x0E00,	/* LED control */
+	Ledctl		= 0x0e00,	/* LED control */
 	Pba		= 0x1000,	/* Packet Buffer Allocation */
 	Pbs		= 0x1008,	/* Packet Buffer Size */
 
 	/* Interrupt */
 
-	Icr		= 0x00C0,	/* Interrupt Cause Read */
+	Icr		= 0x00c0,	/* Interrupt Cause Read */
 	Itr		= 0x00c4,	/* Interrupt Throttling Rate */
-	Ics		= 0x00C8,	/* Interrupt Cause Set */
-	Ims		= 0x00D0,	/* Interrupt Mask Set/Read */
-	Imc		= 0x00D8,	/* Interrupt mask Clear */
-	Iam		= 0x00E0,	/* Interrupt acknowledge Auto Mask */
+	Ics		= 0x00c8,	/* Interrupt Cause Set */
+	Ims		= 0x00d0,	/* Interrupt Mask Set/Read */
+	Imc		= 0x00d8,	/* Interrupt mask Clear */
+	Iam		= 0x00e0,	/* Interrupt acknowledge Auto Mask */
+	Ivar		= 0x00e4,	/* Ivar: interrupt allocation */
 	Eitr		= 0x1680,	/* Extended itr; 82575/6 80 only */
+	P3gio		= 0x5b00,	/*  */
+	Pbaclr		= 0x5b68,	/* clear msi-x pba */
 
 	/* Receive */
 
@@ -143,6 +146,9 @@ enum {					/* Ctrlext */
 	Internalphy	= 0<<22,	/* " internal phy (copper) */
 	Sgmii		= 2<<22,	/* " sgmii */
 	Serdes		= 3<<22,	/* " serdes */
+	Eiame		= 1<<24,	/* extended auto mask enable */
+	Iame		= 1<<27,	/* auto mask enable */
+	Pbasup		= 1<<31,	/* msi-x pba support */
 };
 
 enum {
@@ -178,6 +184,8 @@ enum {					/* phy interface */
 	Phypage		= 22,		/* 8256[34] page register */
 	Phystat		= 26,		/* 82580 phy status */
 	Phyapage	= 29,
+	Phy79page	= 31,		/* 82579 phy page register (all pages) */
+
 	Rtlink		= 1<<10,	/* realtime link status */
 	Phyan		= 1<<11,	/* phy has autonegotiated */
 
@@ -420,10 +428,6 @@ enum {
 	Npool		= 10,
 };
 
-/*
- * cavet emptor: 82577/78 have been entered speculatitively.
- * awating datasheet from intel.
- */
 enum {
 	i82563,
 	i82566,
@@ -442,6 +446,8 @@ enum {
 	i82579,
 	i82580,
 	i82583,
+	i210,
+	i217,
 	i350,
 	Nctlrtype,
 };
@@ -453,35 +459,39 @@ enum {
 	Fpba	= 1<<3,
 	Fflashea	= 1<<4,
 	F79phy	= 1<<5,
+	Fnofct	= 1<<6,
 };
 
 typedef struct Ctlrtype Ctlrtype;
 struct Ctlrtype {
 	int	type;
 	int	mtu;
-	int	flag;
+	int	phyno;
 	char	*name;
+	int	flag;
 };
 
 static Ctlrtype cttab[Nctlrtype] = {
-	i82563,		9014,	Fpba,		"i82563",
-	i82566,		1514,	Fload,		"i82566",
-	i82567,		9234,	Fload,		"i82567",
-	i82567m,		1514,	0,		"i82567m",
-	i82571,		9234,	Fpba,		"i82571",
-	i82572,		9234,	Fpba,		"i82572",
-	i82573,		8192,	Fert,		"i82573",		/* terrible perf above 8k */
-	i82574,		9018,	0,		"i82574",
-	i82575,		9728,	F75|Fflashea,	"i82575",
-	i82576,		9728,	F75,		"i82576",
-	i82577,		4096,	Fload|Fert,	"i82577",
-	i82577m,		1514,	Fload|Fert,	"i82577",
-	i82578,		4096,	Fload|Fert,	"i82578",
-	i82578m,		1514,	Fload|Fert,	"i82578",
-	i82579,		9018,	Fload|Fert|F79phy,	"i82579",
-	i82580,		9728,	F75|F79phy,	"i82580",
-	i82583,		1514,	0,		"i82583",
-	i350,		9728,	F75|F79phy,	"i350",
+	i82563,		9014,	1,	"i82563",		Fpba,
+	i82566,		1514,	1,	"i82566",		Fload,
+	i82567,		9234,	1,	"i82567",		Fload,
+	i82567m,		1514,	1,	"i82567m",	0,
+	i82571,		9234,	1,	"i82571",		Fpba,
+	i82572,		9234,	1,	"i82572",		Fpba,
+	i82573,		8192,	1,	"i82573",		Fert,		/* terrible perf above 8k */
+	i82574,		9018,	1,	"i82574",		0,
+	i82575,		9728,	1,	"i82575",		F75|Fflashea,
+	i82576,		9728,	1,	"i82576",		F75,
+	i82577,		4096,	2,	"i82577",		Fload|Fert,
+	i82577m,		1514,	2,	"i82577",		Fload|Fert,
+	i82578,		4096,	2,	"i82578",		Fload|Fert,
+	i82578m,		1514,	2,	"i82578",		Fload|Fert,
+	i82579,		9018,	2,	"i82579",		Fload|Fert|F79phy|Fnofct,
+	i82580,		9728,	1,	"i82580",		F75|F79phy,
+	i82583,		1514,	1,	"i82583",		0,
+	i210,		9728,	1,	"i210",		F75|Fnofct|Fert,
+	i217,		9728,	1,	"i217",		F79phy|Fnofct|Fload|Fert,
+	i350,		9728,	1,	"i350",		F75|F79phy|Fnofct,
 };
 
 typedef void (*Freefn)(Block*);
@@ -561,7 +571,7 @@ struct Rbpool {
 			uint	starve;
 			Rendez;
 		};
-		uchar pad[128];		/* cacheline */
+		uchar pad[64];		/* cacheline */
 	};
 
 	Block	*x;
@@ -572,8 +582,7 @@ struct Rbpool {
 #define csr32r(c, r)	(*((c)->nic+((r)/4)))
 #define csr32w(c, r, v)	(*((c)->nic+((r)/4)) = (v))
 
-static	Ctlr	*i82563ctlrhead;
-static	Ctlr	*i82563ctlrtail;
+static	Ctlr	*i82563ctlr;
 static	Rbpool	rbtab[Npool];
 
 static char *statistics[Nstatistics] = {
@@ -764,6 +773,8 @@ i82563multicast(void *arg, uchar *addr, int on)
 	x = addr[5]>>1;
 	if(ctlr->type == i82566)
 		x &= 31;
+	if(ctlr->type == i210 || ctlr->type == i217)
+		x &= 15;
 	bit = ((addr[5] & 1)<<4)|(addr[4]>>4);
 	/*
 	 * multiple ether addresses can hash to the same filter bit,
@@ -838,9 +849,10 @@ rbfree(Block *b, int t)
 			iprint("wakey %d; %d %d\n", t, p->nstarve, p->nwakey);
 		p->nwakey++;
 		p->starve = 0;
+		iunlock(p);
 		wakeup(p);
-	}
-	iunlock(p);
+	}else
+		iunlock(p);
 }
 
 static void
@@ -1087,6 +1099,7 @@ i82563replenish(Ctlr *ctlr, int maysleep)
 	}
 	if(i != 0){
 		ctlr->rdt = rdt;
+		sfence();
 		csr32w(ctlr, Rdt, rdt);
 	}
 	return 0;
@@ -1246,8 +1259,37 @@ static int speedtab[] = {
 	10, 100, 1000, 0
 };
 
+static uint phywrite0(Ctlr*, int, int, ushort);
+
 static uint
-phyread(Ctlr *c, int phyno, int reg)
+setpage(Ctlr *c, uint phyno, uint p, uint r)
+{
+	uint pr;
+
+	switch(c->type){
+	case i82563:
+		if(r >= 16 && r <= 28 && r != 22)
+			pr = Phypage;
+		else if(r == 30 || r == 31)
+			pr = Phyapage;
+		else
+			return 0;
+		return phywrite0(c, phyno, pr, p);
+	case i82576:
+	case i82577:
+	case i82578:
+		return phywrite0(c, phyno, Phy79page, p);		/* unverified */
+	case i82579:
+		return phywrite0(c, phyno, Phy79page, p<<5);
+	default:
+		if(p == 0)
+			return 0;
+		return ~0;
+	}
+}
+
+static uint
+phyread0(Ctlr *c, int phyno, int reg)
 {
 	uint phy, i;
 
@@ -1264,6 +1306,16 @@ phyread(Ctlr *c, int phyno, int reg)
 		return ~0;
 	}
 	return phy & 0xffff;
+}
+
+static uint
+phyread(Ctlr *c, uint phyno, uint reg)
+{
+	if(setpage(c, phyno, reg>>8, reg & 0xff) == ~0){
+		print("%s: phyread: bad phy page %d\n", cname(c), reg>>8);
+		return ~0;
+	}
+	return phyread0(c, phyno, reg & 0xff);
 }
 
 static uint
@@ -1285,24 +1337,6 @@ phywrite0(Ctlr *c, int phyno, int reg, ushort val)
 }
 
 static uint
-setpage(Ctlr *c, uint phyno, uint p, uint r)
-{
-	uint pr;
-
-	if(c->type == i82563){
-		if(r >= 16 && r <= 28 && r != 22)
-			pr = Phypage;
-		else if(r == 30 || r == 31)
-			pr = Phyapage;
-		else
-			return 0;
-		return phywrite0(c, phyno, pr, p);
-	}else if(p == 0)
-		return 0;
-	return ~0;
-}
-
-static uint
 phywrite(Ctlr *c, uint phyno, uint reg, ushort v)
 {
 	if(setpage(c, phyno, reg>>8, reg & 0xff) == ~0)
@@ -1311,13 +1345,13 @@ phywrite(Ctlr *c, uint phyno, uint reg, ushort v)
 }
 
 static void
-phyerrata(Ether *e, Ctlr *c)
+phyerrata(Ether *e, Ctlr *c, uint phyno)
 {
 	if(e->mbps == 0)
 		if(c->phyerrata == 0){
 			c->phyerrata++;
-			phywrite(c, 1, Phyprst, Prst);	/* try a port reset */
-			print("%s: phy port reset\n", cname(c));
+			phywrite(c, phyno, Phyprst, Prst);	/* try a port reset */
+			print("ether%d: %s: phy port reset\n", e->ctlrno, cname(c));
 		}
 	else
 		c->phyerrata = 0;
@@ -1333,10 +1367,7 @@ phyl79proc(void *v)
 	e = v;
 	c = e->ctlr;
 
-	phyno = 1;
-	if(c->type == i82579)
-		phyno = 2;
-
+	phyno = cttab[c->type].phyno;
 	for(;;){
 		phy = phyread(c, phyno, Phystat);
 		if(phy == ~0){
@@ -1366,17 +1397,18 @@ next:
 static void
 phylproc(void *v)
 {
-	uint a, i, phy;
+	uint a, i, phy, phyno;
 	Ctlr *c;
 	Ether *e;
 
 	e = v;
 	c = e->ctlr;
+	phyno = cttab[c->type].phyno;
 
 	if(c->type == i82573 && (phy = phyread(c, 1, Phyier)) != ~0)
-		phywrite(c, 1, Phyier, phy | Lscie | Ancie | Spdie | Panie);
+		phywrite(c, phyno, Phyier, phy | Lscie | Ancie | Spdie | Panie);
 	for(;;){
-		phy = phyread(c, 1, Physsr);
+		phy = phyread(c, phyno, Physsr);
 		if(phy == ~0){
 			phy = 0;
 			i = 3;
@@ -1391,18 +1423,19 @@ phylproc(void *v)
 		case i82578:
 		case i82578m:
 		case i82583:
-			a = phyread(c, 1, Phyisr) & Ane;
+		case i210:
+			a = phyread(c, phyno, Phyisr) & Ane;
 			break;
 		case i82571:
 		case i82572:
 		case i82575:
 		case i82576:
-			a = phyread(c, 1, Phylhr) & Anf;
+			a = phyread(c, phyno, Phylhr) & Anf;
 			i = (i-1) & 3;
 			break;
 		}
 		if(a)
-			phywrite(c, 1, Phyctl, phyread(c, 1, Phyctl) | Ran | Ean);
+			phywrite(c, phyno, Phyctl, phyread(c, phyno, Phyctl) | Ran | Ean);
 next:
 		e->link = (phy & Rtlink) != 0;
 		if(e->link == 0)
@@ -1410,7 +1443,7 @@ next:
 		c->speeds[i]++;
 		e->mbps = speedtab[i];
 		if(c->type == i82563)
-			phyerrata(e, c);
+			phyerrata(e, c, phyno);
 		c->lim = 0;
 		i82563im(c, Lsc);
 		c->lsleep++;
@@ -1549,7 +1582,7 @@ i82563interrupt(Ureg*, void *arg)
 {
 	Ctlr *ctlr;
 	Ether *edev;
-	int icr, im;
+	u32int icr, im;
 
 	edev = arg;
 	ctlr = edev->ctlr;
@@ -1723,11 +1756,12 @@ fread(Ctlr *c, Flash *f, int ladr)
 static int
 fload(Ctlr *c)
 {
-	uint data, io, r, adr;
+	uint data,  r, adr;
 	u16int sum;
+	uintmem io;
 	Flash f;
 
-	io = c->pcidev->mem[1].bar & ~0x0f;
+	io = c->pcidev->mem[1].bar & ~(uintmem)0xf;
 	f.reg = vmap(io, c->pcidev->mem[1].size);
 	if(f.reg == nil)
 		return -1;
@@ -1805,7 +1839,7 @@ i82563reset(Ctlr *ctlr)
 		csr32w(ctlr, Mta + i*4, 0);
 	csr32w(ctlr, Fcal, 0x00C28001);
 	csr32w(ctlr, Fcah, 0x0100);
-	if(ctlr->type != i82579 && ctlr->type != i350)
+	if((cttab[ctlr->type].flag & Fnofct) == 0)
 		csr32w(ctlr, Fct, 0x8808);
 	csr32w(ctlr, Fcttv, 0x0100);
 	csr32w(ctlr, Fcrtl, ctlr->fcrtl);
@@ -1950,6 +1984,20 @@ didtype(int d)
 		return i82580;
 	case 0x1506:		/* v */
 		return i82583;
+	case 0x1533:		/* i210-t1 */
+	case 0x1534:
+	case 0x1536:		/* fiber */
+	case 0x1537:		/* backplane */
+	case 0x1538:
+	case 0x1539:		/* i211 */
+		return i210;
+	case 0x153a:		/* i217-lm */
+	case 0x153b:		/* i217-v */
+	case 0x15a0:		/* i218-lm */
+	case 0x15a1:		/* i218-v */
+	case 0x15a2:		/* i218-lm */
+	case 0x15a3:		/* i218-v */
+		return i217;
 	case 0x151f:		/* “powerville” eeprom-less */
 	case 0x1521:		/* copper */
 	case 0x1522:		/* fiber */
@@ -1974,23 +2022,21 @@ static void
 i82563pci(void)
 {
 	int type;
-	Ctlr *ctlr;
+	Ctlr *c, **cc;
 	Pcidev *p;
 
+	cc = &i82563ctlr;
 	for(p = nil; p = pcimatch(p, 0x8086, 0);){
 		hbafixup(p);
 		if((type = didtype(p->did)) == -1)
 			continue;
-		ctlr = malloc(sizeof(Ctlr));
-		ctlr->type = type;
-		ctlr->pcidev = p;
-		ctlr->rbsz = cttab[type].mtu;
-		ctlr->port = p->mem[0].bar & ~0x0F;
-		if(i82563ctlrhead != nil)
-			i82563ctlrtail->next = ctlr;
-		else
-			i82563ctlrhead = ctlr;
-		i82563ctlrtail = ctlr;
+		c = malloc(sizeof *c);
+		c->type = type;
+		c->pcidev = p;
+		c->rbsz = cttab[type].mtu;
+		c->port = p->mem[0].bar & ~(uintmem)0xf;
+		*cc = c;
+		cc = &c->next;
 	}
 }
 
@@ -2009,11 +2055,11 @@ setup(Ctlr *ctlr)
 		print("%s: can't map %#P\n", cname(ctlr), ctlr->port);
 		return -1;
 	}
+	pcisetbme(p);
 	if(i82563reset(ctlr)){
 		vunmap(ctlr->nic, p->mem[0].size);
 		return -1;
 	}
-	pcisetbme(ctlr->pcidev);
 	return 0;
 }
 
@@ -2032,7 +2078,7 @@ pnp(Ether *edev, int type)
 	 * Any adapter matches if no edev->port is supplied,
 	 * otherwise the ports must match.
 	 */
-	for(ctlr = i82563ctlrhead; ; ctlr = ctlr->next){
+	for(ctlr = i82563ctlr; ; ctlr = ctlr->next){
 		if(ctlr == nil)
 			return -1;
 		if(ctlr->active)
@@ -2077,119 +2123,8 @@ anypnp(Ether *e)
 	return pnp(e, -1);
 }
 
-static int
-i82563pnp(Ether *e)
-{
-	return pnp(e, i82563);
-}
-
-static int
-i82566pnp(Ether *e)
-{
-	return pnp(e, i82566);
-}
-
-static int
-i82567pnp(Ether *e)
-{
-	return pnp(e, i82567m) & pnp(e, i82567);
-}
-
-static int
-i82571pnp(Ether *e)
-{
-	return pnp(e, i82571);
-}
-
-static int
-i82572pnp(Ether *e)
-{
-	return pnp(e, i82572);
-}
-
-static int
-i82573pnp(Ether *e)
-{
-	return pnp(e, i82573);
-}
-
-static int
-i82574pnp(Ether *e)
-{
-	return pnp(e, i82574);
-}
-
-static int
-i82575pnp(Ether *e)
-{
-	return pnp(e, i82575);
-}
-
-static int
-i82576pnp(Ether *e)
-{
-	return pnp(e, i82576);
-}
-
-static int
-i82577pnp(Ether *e)
-{
-	return pnp(e, i82577m) & pnp(e, i82577);
-}
-
-static int
-i82578pnp(Ether *e)
-{
-	return pnp(e, i82578m) & pnp(e, i82578);
-}
-
-static int
-i82579pnp(Ether *e)
-{
-	return pnp(e, i82579);
-}
-
-static int
-i82580pnp(Ether *e)
-{
-	return pnp(e, i82580);
-}
-
-static int
-i82583pnp(Ether *e)
-{
-	return pnp(e, i82583);
-}
-
-static int
-i350pnp(Ether *e)
-{
-	return pnp(e, i350);
-}
-
 void
 ether82563link(void)
 {
-	/*
-	 * recognise lots of model numbers for debugging
-	 * also good for forcing onboard nic(s) as ether0
-	 * try to make that unnecessary by listing lom first.
-	 */
-	addethercard("i82563", i82563pnp);
-	addethercard("i82566", i82566pnp);
-	addethercard("i82574", i82574pnp);
-	addethercard("i82576", i82576pnp);
-	addethercard("i82567", i82567pnp);
-	addethercard("i82573", i82573pnp);
-
-	addethercard("i82571", i82571pnp);
-	addethercard("i82572", i82572pnp);
-	addethercard("i82575", i82575pnp);
-	addethercard("i82577", i82577pnp);
-	addethercard("i82578", i82578pnp);
-	addethercard("i82579", i82579pnp);
-	addethercard("i82580", i82580pnp);
-	addethercard("i82583", i82583pnp);
-	addethercard("i350", i350pnp);
-	addethercard("igbepcie", anypnp);
+	addethercard("i82563", anypnp);
 }

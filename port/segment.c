@@ -374,7 +374,7 @@ segclock(uintptr pc)
 	Segment *s;
 
 	s = up->seg[TSEG];
-	if(s == 0 || s->profile == 0)
+	if(s == nil || s->profile == 0)
 		return;
 
 	s->profile[0] += TK2MS(1);

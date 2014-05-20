@@ -53,7 +53,7 @@ flushcache(SDunit *u, Sfis *f)
 }
 
 static int
-setfeatures(SDunit *u, Sfis *f, uchar x, uint w)
+setfeatures(SDunit *u, Sfis *f, uchar x, uint ms)
 {
 	SDreq r;
 
@@ -61,7 +61,7 @@ setfeatures(SDunit *u, Sfis *f, uchar x, uint w)
 	r.unit = u;
 	r.clen = 16;
 	r.ataproto = featfis(f, r.cmd, x);
-	r.timeout = totk(w);
+	r.timeout = totk(Ms2tk(ms));
 	return reqio(&r);
 }
 

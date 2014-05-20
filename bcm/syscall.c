@@ -365,7 +365,7 @@ sysrforkchild(Proc* child, Proc* parent)
 {
 	Ureg *cureg;
 
-	child->sched.sp = PTR2UINT(child->kstack+KSTACK-sizeof(Ureg));
+	child->sched.sp = PTR2UINT(child->kstack+KSTACK-sizeof(Ureg);
 	child->sched.pc = PTR2UINT(sysrforkret);
 
 	cureg = (Ureg*)(child->sched.sp);

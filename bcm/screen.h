@@ -18,18 +18,16 @@ extern Cursorinfo cursor;
 extern Cursor arrow;
 
 /* mouse.c */
-extern void	mousectl(Cmdbuf*);
-extern void	mouseresize(void);
+extern void mousectl(Cmdbuf*);
+extern void mouseresize(void);
 
 /* screen.c */
-extern void	blankscreen(int);
+extern void blankscreen(int);
 extern void	flushmemscreen(Rectangle);
-extern uchar*	attachscreen(Rectangle*, ulong*, int*, int*, int*);
+extern uchar* attachscreen(Rectangle*, ulong*, int*, int*, int*);
 extern int	cursoron(int);
 extern void	cursoroff(int);
 extern void	setcursor(Cursor*);
-extern	int	setcolor(uint, uint, uint, uint);
-extern	void	getcolor(int, uint*, uint*, uint*);
 
 /* devdraw.c */
 extern QLock	drawlock;

@@ -30,9 +30,27 @@ errfmt(Fmt*)
 	return -1;
 }
 
+int
+fmtP(Fmt* f)
+{
+	uintmem pa;
+
+	pa = va_arg(f->args, uintmem);
+
+	if(sizeof(uintmem) <= 4 /* || (pa & ~(uintmem)0xffffffff) == 0 */){
+		if(f->flags & FmtSharp)
+			return fmtprint(f, "%#.8ux", (u32int)pa);
+		return fmtprint(f, "%ud", (u32int)pa);
+	}
+
+	if(f->flags & FmtSharp)
+		return fmtprint(f, "%#.16llux", (u64int)pa);
+	return fmtprint(f, "%llud", (u64int)pa);
+}
+
 void
 fmtinit(void)
 {
+	fmtinstall('P', fmtP);
 	quotefmtinstall();
-	archfmtinstall();
 }

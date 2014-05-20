@@ -144,7 +144,7 @@ dmastart(int chan, int dev, int dir, void *src, void *dst, int len)
 	ctlr = &dma[chan];
 	if(ctlr->regs == nil){
 		ctlr->regs = (u32int*)(DMAREGS + chan*Regsize);
-		ctlr->cb = mallocalign(sizeof(Cb), Cbalign, 0, 0);
+		ctlr->cb = xspanalloc(sizeof(Cb), Cbalign, 0);
 		assert(ctlr->cb != nil);
 		dmaregs[Enable] |= 1<<chan;
 		ctlr->regs[Cs] = Reset;

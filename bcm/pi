@@ -8,7 +8,7 @@ dev +dev
 	mnt
 	srv
 	dup
-	fakertc
+	rtc
 	sd		pisdalloc
 	ssl
 	tls
@@ -20,6 +20,7 @@ dev +dev
 	cec
 	aoe
 	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium ptclbsum inferno
+	pci
 
 	uart
 	kbin
@@ -40,6 +41,7 @@ ip +dev
 	icmp6
 
 link +dev
+	archbcm
 	loopbackmedium
 	ethermedium
 	usbdwc
@@ -49,6 +51,9 @@ sd +dev
 #	sdaoe
 #	sdloop
 #	sdmmc	emmc
+
+misc +dev
+	mp		mpacpi lapic ioapic msi pci sipi
 
 boot terminal
 	il
@@ -82,7 +87,7 @@ dbgflg
 	syssem		'S'
 	mmu		'v'
 
-rpi +dev
+amd64 +dev
 	arch
 	archbcm
 	arm
@@ -94,7 +99,7 @@ rpi +dev
 	random
 	syscall
 	trap
-#	physalloc
+	physalloc
 
 physseg
 	{ .attr=SG_SHARED,	.name="shared",	.size=SEGMAXPG,	.pgszi=1, },
@@ -102,7 +107,7 @@ physseg
 
 port
 	alarm
-	qallocb
+	allocb
 	chan
 	dev
 	devtab

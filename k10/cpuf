@@ -1,0 +1,191 @@
+dev +dev
+	root
+	cons
+	arch
+	env
+	pipe
+	proc
+	mnt
+	srv
+	dup
+	rtc
+	sd
+	ssl
+	tls
+	cap
+	kprof
+#	segment
+	acpi
+	ws
+
+	ether		netif
+	cec
+	aoe
+	snap
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium ptclbsum inferno
+	pci
+
+	uart
+	pckb
+	usb
+
+uart +dev
+	uarti8250
+	uartox958	pci	uartp8250
+	uartpci		pci	uartp8250
+
+ip +dev
+	il
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+link +dev
+	resmem
+# 1gbe
+	ether8169	pci ethermii
+#	ether82557	pci
+	ether82563	pci
+	etherbcm	pci ethermii
+	etherigbe	pci ethermii
+# 10gbe
+	ether82598	pci
+	etherm10g	pci
+#	ether57711	pci
+# 40gbe
+	etheri40		pci
+	ethermedium
+#	must have for venti (please fix venti)
+	loopbackmedium
+#	netdevmedium
+	usbuhci
+	usbohci
+	usbehci 		usbehcipc
+
+sd +dev
+	sdaoe
+	sdahci		sdscsifis sdatafis led
+#	sdide		sdscsifis sdatafis
+	sdodin		sdscsifis sdatafis
+	sdvanir		sdscsifis sdatafis
+	sdmpt2		sdscsifis sdatafis
+	sdloop
+
+misc +dev
+#	mp		mpacpi lapic ioapic msi pci sipi
+	acpi		acpiio lapic ioapic msi pci sipi
+
+boot cpu
+	il
+	local
+
+rootdir
+	boot$CONF.out boot
+	/amd64/bin/auth/factotum factotum
+	/amd64/bin/ip/ipconfig ipconfig
+	/amd64/bin/usb/usbd usbd
+	/amd64/bin/fossil/fossil fossil
+	/amd64/bin/venti/venti venti
+
+conf
+	int cpuserver = 1;
+
+dbgflg
+	apic		'A'
+	arch		'V'
+	devacpi		'C'
+	devsegment	'z'
+	hpet		'H'
+	image		'p'
+	ioapic		'I'
+	main		'x'
+	mp		'M'
+	page		'p'
+	pager		'p'
+	physalloc		'm'
+	sysproc		'E'
+	sysseg		'p'
+	syssem		'S'
+	mmu		'v'
+
+amd64 +dev
+	l32p
+	l64v
+	l64idt
+	l64cpuid
+	l64syscall
+	l64fpu
+	adr
+	arch
+	archk10
+	cga
+	options
+	fpu
+	i8042
+	i8259
+	main
+	map
+	mmu
+	qmalloc
+	random
+	syscall
+	trap
+	vsvm
+	physalloc
+
+physseg
+	{ .attr=SG_SHARED,	.name="shared",	.size=SEGMAXPG,	.pgszi=1, },
+	{ .attr=SG_BSS,		.name="memory",	.size=SEGMAXPG,	.pgszi=1, },
+
+port
+	alarm
+	qallocb
+	chan
+	dev
+	devtab
+	edf
+	fault
+	image
+	latin1
+	log2
+	page
+	pager
+	parse
+	pgrp
+	portclock
+	print
+	proc
+	ps
+	qio
+	qlock
+	rebootcmd
+	ref
+	segment
+	sysauth
+	sysfile
+	sysproc
+	sysseg
+#	syssem
+	systab
+#	taslock
+#	tiklock
+	mcslock
+	tod
+	syscallfmt
+
+dir
+	ip
+	port
+
+lib
+	libaml
+	libip
+	libsec
+	libmp
+	libfis
+	libc
+
+mkargs
+	CFLAGS=-FVTw
