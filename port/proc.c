@@ -578,19 +578,20 @@ underloaded(Sched *sch)
  * steal a new process from it. But steal low priority processes to
  * avoid disturbing high priority ones.
  */
+/*
 static Proc*
 steal(void)
 {
-	static int last;	/* donate in round robin */
+	static int last;	// donate in round robin 
 	int start, i;
 	Schedq *rq;
 	Sched *sch;
 	Proc *p;
 
-	/*
-	 * measures show that stealing is expensive, we are donating
-	 * by now but only when calling exec(). See maydonate().
-	 */
+	
+	 // measures show that stealing is expensive, we are donating
+	 // by now but only when calling exec(). See maydonate().
+	
 	if(!schedsteals)
 		return nil;
 
@@ -610,6 +611,7 @@ steal(void)
 	}
 	return nil;
 }
+*/
 
 /*
  *  pick a process to run
@@ -657,11 +659,13 @@ loop:
 			}
 		}
 
+		/*
 		splhi();
 		p = steal();
 		if(p != nil)
 			goto stolen;
 		spllo();
+		*/
 		/* waste time or halt the CPU */
 		idlehands();
 		/* remember how much time we're here */
@@ -1438,11 +1442,19 @@ scheddump(void)
 	Proc *p;
 	Sched *sch;
 	Schedq *rq;
+	Mach *mp;
 
-	for(sch = run; sch < &run[Nsched]; sch++){
-		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+	/* 
+	 * for each cpu's Sched struct, loop over their runq 
+	 */
+	for(i = 0; i < MACHMAX; i++) {
+		mp = sys->machptr[i];
+		if (mp == nil || mp->online == 0 || &mp->sch == nil)
+			continue;
+		sch = &mp->sch;
+		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--) {
 			if(rq->head == nil)
-				continue;
+			    continue;
 			print("sch%ld rq%ld:", sch - run, rq-sch->runq);
 			for(p = rq->head; p; p = p->rnext)
 				print(" %d(%lud)", p->pid, m->ticks - p->readytime);
