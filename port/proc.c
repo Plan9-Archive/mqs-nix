@@ -12,12 +12,7 @@
 enum
 {
 	Scaling=2,
-
-	/*
-	 * number of schedulers used.
-	 * 1 uses just one, which is the behavior of Plan 9.
-	 */
-	Nsched = 16,
+	Schedgain = 30,
 };
 
 Ref	noteidalloc;
@@ -28,8 +23,7 @@ static Ref pidalloc;
  * Many multiprocessor machines are NUMA
  * try to use a different scheduler per color
  */
-Sched run[Nsched];
-//Sched run[sys->nmach];
+//Sched run[Nsched];
 
 struct Procalloc procalloc;
 
@@ -64,6 +58,7 @@ char *statename[Nprocstate] =
 	"Semdown",
 };
 
+/*
 void
 setmachsched(Mach *mp)
 {
@@ -76,6 +71,7 @@ setmachsched(Mach *mp)
 	}
 //	mp->sch = &run[color%Nsched];
 }
+*/
 
 Sched*
 procsched(Proc *p)
@@ -85,26 +81,9 @@ procsched(Proc *p)
 	pm = p->mp;
 	if(pm == nil)
 		pm = m;
-	if(&pm->sch == nil) /* should never fall through if they are statically allocated */
-		setmachsched(pm);
 	return &pm->sch;
 }
 
-/*
- * bad planning, once more.
- */
-void
-procinit0(void)
-{
-	int i;
-
-/*	for(i = 0; i < Nsched; i++)
-		run[i].schedgain = 30;
-*/
-	for (i = 0; i < sys->nmach; i++) 
-	    sys->machptr[i]->sch.schedgain = 30;
-
-}
 
 /*
  * Always splhi()'ed.
@@ -356,7 +335,8 @@ updatecpu(Proc *p)
 		return;
 	if(&m->sch == nil)	/* may happen during boot */
 		return;
-	D = m->sch.schedgain*HZ*Scaling;
+//	D = m->sch.schedgain*HZ*Scaling;
+	D = Schedgain*HZ*Scaling;
 	if(n > D)
 		n = D;
 

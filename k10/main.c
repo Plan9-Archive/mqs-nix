@@ -18,13 +18,13 @@ static uintptr sp;		/* XXX - must go - user stack of init proc */
 static int maxmach = MACHMAX;
 
 extern	void	options(void);
-extern	void	setmachsched(Mach*);
+//extern	void	setmachsched(Mach*);
 
 void
 squidboy(int apicno)
 {
 	sys->machptr[m->machno] = m;
-	setmachsched(m);
+//	setmachsched(m);
 
 	m->perf.period = 1;
 	m->cpuhz = sys->machptr[0]->cpuhz;
@@ -166,7 +166,6 @@ main(void)
 	trapinit();
 	printinit();
 
-	procinit0();
 	lapiconline();
 	ioapiconline();
 	sipi();
