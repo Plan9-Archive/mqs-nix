@@ -633,7 +633,7 @@ runproc(void)
 	&& (p->wired == nil || p->wired->machno == m->machno)){
 		sch->skipscheds++;
 		rq = &sch->runq[p->priority];
-		goto found;
+		goto skipsched;
 	}
 
 	sch->preempts++;
@@ -656,7 +656,6 @@ loop:
 			for(p = rq->head; p; p = p->rnext){
 				if(p->mp == nil || p->mp == m
 						|| (p->wired == nil && i > 0)) {
-					//					goto found;
 					splhi();
 					if(!canlock(sch))
 					  	goto loop;
@@ -673,6 +672,7 @@ loop:
 					if(p->state != Ready)
 						iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 					unlock(sch);
+					goto found;
 				}
 				l = p;
 			}
@@ -692,14 +692,14 @@ loop:
 		m->perf.inidle += now-start;
 		start = now;
 	}
-/*
-found:
+
+skipsched:
 	splhi();
 	p = dequeueproc(sch, rq, p);
 	if(p == nil)
 		goto loop;
-stolen:
-*/
+//stolen:
+found:
 	p->state = Scheding;
 	p->mp = m;
 
