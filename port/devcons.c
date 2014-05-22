@@ -665,6 +665,7 @@ enum{
 	Qswap,
 	Qsysname,
 	Qsysstat,
+	Qscheddump,
 	Qtime,
 	Quser,
 	Qzero,
@@ -698,6 +699,7 @@ static Dirtab consdir[]={
 	"swap",		{Qswap},	0,		0664,
 	"sysname",	{Qsysname},	0,		0664,
 	"sysstat",	{Qsysstat},	0,		0666,
+	"scheddump",	{Qscheddump},	0,		0444,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
 	"user",		{Quser},	0,		0666,
 	"zero",		{Qzero},	0,		0444,
@@ -991,6 +993,10 @@ consread(Chan *c, void *buf, long n, vlong off)
 		poperror();
 		free(b);
 		return n;
+
+	case Qscheddump:
+		scheddump();
+		return 0;
 
 	case Qswap:
 		s = b = smalloc(READSTR);
