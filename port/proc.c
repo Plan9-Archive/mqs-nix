@@ -1443,6 +1443,7 @@ scheddump(void)
 	Sched *sch;
 	Schedq *rq;
 	Mach *mp;
+	int i;
 
 	/* 
 	 * for each cpu's Sched struct, loop over their runq 
@@ -1455,13 +1456,13 @@ scheddump(void)
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--) {
 			if(rq->head == nil)
 			    continue;
-			print("sch%ld rq%ld:", sch - run, rq-sch->runq);
+			print("sch%ld rq%ld:", sch, rq-sch->runq);
 			for(p = rq->head; p; p = p->rnext)
 				print(" %d(%lud)", p->pid, m->ticks - p->readytime);
 			print("\n");
 			delay(150);
 		}
-		print("sch%ld: nrdy %d\n", sch - run, sch->nrdy);
+		print("sch%ld: nrdy %d\n", sch, sch->nrdy);
 	}
 }
 

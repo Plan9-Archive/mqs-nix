@@ -1079,7 +1079,7 @@ extern	Pgalloc	pga;
 extern	Physseg	physseg[];
 extern	Procalloc	procalloc;
 extern	uint	qiomaxatomic;
-extern	Sched	run[];
+//extern	Sched	run[];
 extern	char*	statename[];
 extern	Lockstats lockstats;
 extern	QLockstats qlockstats;

@@ -319,7 +319,6 @@ trap(Ureg* ureg)
 		cycles(&up->kentry);
 	}
 
-	assert(m->ilockdepth == 0);
 	clockintr = 0;
 
 	if(ctl = vctl[m->machno][vno]){
