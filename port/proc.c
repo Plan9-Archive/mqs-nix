@@ -621,7 +621,7 @@ runproc(void)
 {
 	Schedq *rq;
 	Sched *sch;
-	Proc *p;
+	Proc *p, *l;
 	uvlong start, now;
 	int i;
 
@@ -652,10 +652,29 @@ loop:
 		 *
 		 */
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+			l = 0;
 			for(p = rq->head; p; p = p->rnext){
 				if(p->mp == nil || p->mp == m
-				|| (p->wired == nil && i > 0))
-					goto found;
+						|| (p->wired == nil && i > 0)) {
+					//					goto found;
+					splhi();
+					if(!canlock(sch))
+					  	goto loop;
+					if(p->rnext == nil)
+						rq->tail = l;
+					if(l)
+						l->rnext = p->rnext;
+					else
+						rq->head = p->rnext;
+					if(rq->head == nil)
+						sch->runvec &= ~(1<<(rq-sch->runq));
+					rq->n--;
+					sch->nrdy--;
+					if(p->state != Ready)
+						iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+					unlock(sch);
+				}
+				l = p;
 			}
 		}
 
@@ -673,13 +692,14 @@ loop:
 		m->perf.inidle += now-start;
 		start = now;
 	}
-
+/*
 found:
 	splhi();
 	p = dequeueproc(sch, rq, p);
 	if(p == nil)
 		goto loop;
 stolen:
+*/
 	p->state = Scheding;
 	p->mp = m;
 
