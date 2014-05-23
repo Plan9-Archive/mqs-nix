@@ -412,7 +412,8 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 }
 
 /*
- *  try to remove a process from a scheduling queue (called splhi)
+ *  try to remove target process tp from 
+ *  scheduling queue rq (called splhi)
  */
 Proc*
 dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
@@ -638,45 +639,26 @@ runproc(void)
 
 	sch->preempts++;
 
-loop:
-	/*
-	 *  find a process that last ran on this processor (affinity),
-	 *  or one that hasn't moved in a while (load balancing).  Every
-	 *  time around the loop affinity goes down.
-	 */
 	spllo();
-	for(i = 0;; i++){
-		/*
-		 *  find the highest priority target process that this
-		 *  processor can run given affinity constraints.
-		 *
-		 */
-		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
-			l = 0;
-			for(p = rq->head; p; p = p->rnext){
-				if(p->mp == nil || p->mp == m
-						|| (p->wired == nil && i > 0)) {
-					splhi();
-					if(!canlock(sch))
-					  	goto loop;
-					if(p->rnext == nil)
-						rq->tail = l;
-					if(l)
-						l->rnext = p->rnext;
-					else
-						rq->head = p->rnext;
-					if(rq->head == nil)
-						sch->runvec &= ~(1<<(rq-sch->runq));
-					rq->n--;
-					sch->nrdy--;
-					if(p->state != Ready)
-						iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-					unlock(sch);
-					goto found;
-				}
-				l = p;
-			}
-		}
+	while(!canlock(sch))
+		;
+	for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+		if ((p = rq->head) == nil)
+			continue;
+		splhi();
+		/* dequeue the first (head) process of this rq */
+		if(p->rnext == nil)
+			rq->tail = nil;
+		rq->head = p->rnext;
+		if(rq->head == nil)
+			sch->runvec &= ~(1<<(rq-sch->runq));
+		rq->n--;
+		sch->nrdy--;
+		if(p->state != Ready)
+			iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+		unlock(sch);
+		goto found;
+	}
 
 		/*
 		splhi();
@@ -691,13 +673,11 @@ loop:
 		now = perfticks();
 		m->perf.inidle += now-start;
 		start = now;
-	}
 
 skipsched:
 	splhi();
-	p = dequeueproc(sch, rq, p);
-	if(p == nil)
-		goto loop;
+	while((p = dequeueproc(sch, rq, p)) == nil)
+		;
 //stolen:
 found:
 	p->state = Scheding;
