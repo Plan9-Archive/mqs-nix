@@ -36,6 +36,7 @@ static int reprioritize(Proc*);
 static void updatecpu(Proc*);
 
 static void rebalance(void);
+static Mach *laziestmach(void);
 
 int schedsteals = 1;
 int scheddonates = 0;
@@ -496,7 +497,11 @@ schedready(Sched *sch, Proc *p)
 void
 ready(Proc *p)
 {
-	schedready(procsched(p), p);
+/*	schedready(procsched(p), p); */
+	Mach *laziest;
+
+	laziest = laziestmach();
+	schedready(&laziest->sch, p);
 }
 
 /*
@@ -1666,7 +1671,7 @@ renameuser(char *old, char *new)
 
 /*
  *  time accounting called by clock() splhi'd
- *  only cpu0 computes system load average
+ *  load is calculated per-mach
  */
 void
 accounttime(void)
@@ -1678,8 +1683,7 @@ accounttime(void)
 	sch = &m->sch;
 	p = m->proc;
 	if(p) {
-		if(m->machno == 0)
-			sch->nrun++;
+		sch->drun++;
 		p->time[p->insyscall]++;
 	}
 
@@ -1697,10 +1701,6 @@ accounttime(void)
 	m->perf.avg_inintr = (m->perf.avg_inintr*(HZ-1)+m->perf.inintr)/HZ;
 	m->perf.inintr = 0;
 
-	/* only one processor gets to compute system load averages */
-	if(m->machno != 0)
-		return;
-
 	/*
 	 * calculate decaying load average.
 	 * if we decay by (n-1)/n then it takes
@@ -1715,6 +1715,20 @@ accounttime(void)
 	n = (sch->nrdy+n)*1000;
 	m->load = (m->load*(HZ-1)+n)/HZ;
 }
+
+Mach* 
+laziestmach(void)
+{
+	int i, min_load = 1;
+	Mach *laziest, *mp;
+	/* perhaps just check a subset of maches instead */
+	for(i = 0; i < sys->nmach; i++){
+		if((mp = sys->machptr[i])->load < min_load)
+			laziest = mp;
+	}
+	return laziest;
+}
+
 
 void
 halt(void)
