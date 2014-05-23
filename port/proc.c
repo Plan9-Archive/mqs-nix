@@ -639,32 +639,34 @@ runproc(void)
 
 	sch->preempts++;
 
+loop:
 	spllo();
-	while(!canlock(sch))
-		;
-	for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
-		if ((p = rq->head) == nil)
-			continue;
-		splhi();
-		/* dequeue the first (head) process of this rq */
-		if(p->rnext == nil)
-			rq->tail = nil;
-		rq->head = p->rnext;
-		if(rq->head == nil)
-			sch->runvec &= ~(1<<(rq-sch->runq));
-		rq->n--;
-		sch->nrdy--;
-		if(p->state != Ready)
-			iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-		unlock(sch);
-		goto found;
-	}
+	for(i = 0; ; i++){
+		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+			if ((p = rq->head) == nil)
+				continue;
+			splhi();
+			while(!canlock(sch))
+				;
+			/* dequeue the first (head) process of this rq */
+			if(p->rnext == nil)
+				rq->tail = nil;
+			rq->head = p->rnext;
+			if(rq->head == nil)
+				sch->runvec &= ~(1<<(rq-sch->runq));
+			rq->n--;
+			sch->nrdy--;
+			if(p->state != Ready)
+				iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+			unlock(sch);
+			goto found;
+		}
 
 		/*
 		splhi();
 		p = steal();
 		if(p != nil)
-			goto stolen;
+		goto stolen;
 		spllo();
 		*/
 		/* waste time or halt the CPU */
@@ -673,11 +675,14 @@ runproc(void)
 		now = perfticks();
 		m->perf.inidle += now-start;
 		start = now;
+	}
 
 skipsched:
 	splhi();
-	while((p = dequeueproc(sch, rq, p)) == nil)
-		;
+	p = dequeueproc(sch, rq, p);
+	if(p == nil)
+		goto loop;
+
 //stolen:
 found:
 	p->state = Scheding;
