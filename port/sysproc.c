@@ -226,36 +226,6 @@ typedef struct {
 	uvlong hdr[1];
 } Hdr;
 
-static void
-donate(Proc *p)
-{
-	static int machno;
-	int mach, i;
-	Mach *mp;
-	extern int scheddonates;
-
-	if(!scheddonates || p->wired)
-		return;
-
-	for(i = 0; i < MACHMAX; i++){
-		mach = i;
-		mp = sys->machptr[mach];
-		if(mp == m || mp == nil || mp->online == 0 || &mp->sch == nil)
-			continue;
-		if(&mp->sch == &m->sch)
-			continue;
-		if(mp->sch.nrdy > m->sch.nrdy)/* more loaded than us, ignore */
-			continue;
-		p->mp = mp;
-		p->color = machcolor(mp);
-		machno = mach + 1;
-iprint("donate %d -> %d\n", m->machno, mp->machno);
-		sched();
-		return;
-	}
-	/* no mach preferred, don't change the process color */
-}
-
 void
 sysexec(Ar0* ar0, va_list list)
 {

@@ -203,8 +203,7 @@ lockgetpc(Lock *l)
 {
 	LockEntry *ql;
 
-	ql = l->e;
-	if(ql != nil && ql->used == l)
+	if(l != nil && (ql = l->e) != nil && ql->used == l)
 		return ql->pc;
 	return 0;
 }
@@ -214,7 +213,6 @@ locksetpc(Lock *l, uintptr pc)
 {
 	LockEntry *ql;
 
-	ql = l->e;
-	if(ql != nil && ql->used == l && ql->m == m)
+	if(l != nil && (ql = l->e) != nil  && ql->used == l && ql->m == m)
 		ql->pc = pc;
 }

@@ -575,7 +575,7 @@ edfready(Proc *p)
 	sch->nrdy++;
 	sch->runvec |= 1 << PriEdf;
 	p->priority = PriEdf;
-	p->readytime = m->ticks;
+	p->readytime = fastticks(nil);
 	p->state = Ready;
 	unlock(sch);
 	if(p->trace)

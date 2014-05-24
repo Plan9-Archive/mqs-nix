@@ -824,10 +824,10 @@ consread(Chan *c, void *buf, long n, vlong off)
 {
 	ulong l;
 	Mach *mp;
-	char *b, *bp, ch, *s, *e, tmp[512];
-	int i, k, id, send;
+	char *b, *bp, ch, *s, *p, *e, tmp[512];
+	int i, k, id, send, r;
 	long offset;
-	extern int schedsteals, scheddonates;
+	extern int schedsteals;
 
 	if(n <= 0)
 		return n;
@@ -1035,17 +1035,27 @@ consread(Chan *c, void *buf, long n, vlong off)
 		return n;
 
 	case Qdebug:
-		e = tmp + sizeof tmp;
-		s = seprint(tmp, e, "steal %d\n", schedsteals);
-		s = seprint(s, e, "donate %d\n", scheddonates);
-		s = seprint(s, e, "locks %llud\n", lockstats.locks);
-		s = seprint(s, e, "glare %llud\n", lockstats.glare);
-		s = seprint(s, e, "inglare %llud\n", lockstats.inglare);
-		s = seprint(s, e, "qlock %llud\n", qlockstats.qlock);
-		s = seprint(s, e, "qlockq %llud\n", qlockstats.qlockq);
-		qiostats(s, e);
-		return readstr(offset, buf, n, tmp);
-		break;
+		s = malloc(READSTR);
+		if(s == nil)
+			error(Enomem);
+		if(waserror()){
+			free(s);
+			nexterror();
+		}
+		p = s;	
+		e = s +READSTR;
+		p = seprint(p, e, "steal %d\n", schedsteals);
+		p = seprint(p, e, "locks %llud\n", lockstats.locks);
+		p = seprint(p, e, "glare %llud\n", lockstats.glare);
+		p = seprint(p, e, "inglare %llud\n", lockstats.inglare);
+		p = seprint(p, e, "qlock %llud\n", qlockstats.qlock);
+		p = seprint(p, e, "qlockq %llud\n", qlockstats.qlockq);
+		p = schedstats(p, e);
+		qiostats(p, e);
+		r = readstr(offset, buf, n, s);
+		poperror();
+		free(s);
+		return r;
 	default:
 		print("consread %#llux\n", c->qid.path);
 		error(Egreg);
@@ -1064,7 +1074,7 @@ conswrite(Chan *c, void *va, long n, vlong off)
 	ulong offset;
 	Cmdbuf *cb;
 	Cmdtab *ct;
-	extern int schedsteals, scheddonates;
+	extern int schedsteals;
 	a = va;
 	offset = off;
 
@@ -1196,10 +1206,6 @@ conswrite(Chan *c, void *va, long n, vlong off)
 			schedsteals = 1;
 		else if(strcmp(buf, "nosteal") == 0)
 			schedsteals = 0;
-		else if(strcmp(buf, "donate") == 0)
-			scheddonates = 1;
-		else if(strcmp(buf, "nodonate") == 0)
-			scheddonates = 0;
 		else
 			error(Ebadctl);
 		break;

@@ -703,10 +703,10 @@ struct Sched
 	Lock;			/* runq */
 	int	nrdy;
 	uint	delayedscheds;	/* statistics */
-	int	skipscheds;
-	int	preempts;
-	int	schedgain;
-	uint	balancetime;
+	uint	skipscheds;
+	uint	preempts;
+	uint	loop;
+	ulong	balancetime;
 	Schedq	runq[Nrq];
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
@@ -835,7 +835,7 @@ struct Proc
 	int	fixedpri;	/* priority level does not change */
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
-	ulong	readytime;	/* time process came ready */
+	uvlong	readytime;	/* time process came ready, in fastticks*/
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it

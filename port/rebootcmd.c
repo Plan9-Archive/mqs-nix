@@ -52,6 +52,19 @@ setbootcmd(int argc, char *argv[])
 	free(buf);
 }
 
+static void
+checkmagic(ulong magic)
+{
+	int i;
+	ulong except[] = {S_MAGIC, I_MAGIC, ~0, ~0, };
+
+	for(i = 0;; i++)
+		if(AOUT_MAGIC == except[i] || except[i] == ~0)
+			break;
+	if(magic != AOUT_MAGIC && magic != except[i^1])
+		error(Ebadexec);
+}
+
 void
 rebootcmd(int argc, char *argv[])
 {
@@ -63,7 +76,7 @@ rebootcmd(int argc, char *argv[])
 	if(argc == 0)
 		exit(0);
 
-	c = namec(argv[0], Aopen, OEXEC, 0);
+	c = namec(argv[0], Aopen, OREAD, 0);
 	if(waserror()){
 		cclose(c);
 		nexterror();
@@ -74,8 +87,9 @@ rebootcmd(int argc, char *argv[])
 	entry = l2be(exec.entry);
 	text = l2be(exec.text);
 	data = l2be(exec.data);
-	if(magic != AOUT_MAGIC)
-		error(Ebadexec);
+
+	checkmagic(magic);
+
 	if(magic & HDR_MAGIC)
 		readn(c, ulv, 8);
 	/* round text out to page boundary */
