@@ -223,7 +223,6 @@ sched(void)
 	up->mach = m;
 	m->proc = up;
 	mmuswitch(up);
-
 	assert(up->wired == nil || up->wired->machno == m->machno);
 	gotolabel(&up->sched);
 }
@@ -497,13 +496,21 @@ schedready(Sched *sch, Proc *p)
 void
 ready(Proc *p)
 {
-/*	schedready(procsched(p), p); */
-	Mach *laziest;
-
-	laziest = laziestmach();
-	schedready(&laziest->sch, p);
+	schedready(procsched(p), p); 
 }
 
+void
+forkready(Proc *p)
+{
+	if (p->wired != nil) {
+		 schedready(procsched(p), p);
+	} else{
+		Mach *laziest;
+
+		laziest = laziestmach();
+		schedready(&laziest->sch, p);
+	}
+}
 /*
  *  yield the processor and drop our priority
  */
@@ -1683,7 +1690,7 @@ accounttime(void)
 	sch = &m->sch;
 	p = m->proc;
 	if(p) {
-		sch->drun++;
+		sch->nrun++;
 		p->time[p->insyscall]++;
 	}
 
