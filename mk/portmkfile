@@ -107,12 +107,11 @@ installall:V:
 		mk 'CONF='$i install
 
 %.clean:V:
-	rm -f $AGEN $PGEN $stem.c [9bz]$stem [9bz]$stem.gz boot$stem.*
+	rm -f $AGEN $stem.c [9bz]$stem [9bz]$stem.gz boot$stem.*
 
 clean:V:
-	rm -f *.[$OS] *.root.[cs] *.out *.m *.acid errstr.h init.h $objtype^l.h
-	for(i in $CONFLIST)
-		mk $i.clean
+	rm -f *.[$OS] *.root.[cs] *.out *.m *.acid errstr.h init.h reboot.h $objtype^l.h
+	rm -f $AGEN ($CONFLIST)^.c [9bz]^($CONFLIST) boot^($CONFLIST)^.*
 
 nuke:V:	clean
 	rm -f ../boot/libboot.a$O *.elf *.rr

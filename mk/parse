@@ -87,6 +87,8 @@ BEGIN{
 				o = o "\t$CC $CFLAGS " s " " dir "/$stem1.c\n";
 			}
 		}
+		for(i = 1; i < section["mkargs"]; i++)
+			o = o line["mkargs", i] "\n";
 	}
 	if((!oargc || ("-mkrootrules" in oargv)) && ("rootdir" in section)){
 		mkrootrules(name, cname, src);
@@ -438,7 +440,8 @@ function mkdevc(		a, d, i, m, n, s, t, u, name, cname){
 		s = s "{\n";
 		s = s "\tsplhi();\n";
 		s = s "\tiprint(\"rdb...not installed\\n\");\n";
-		s = s "\tfor(;;);\n";
+		s = s "\tfor(;;)\n";
+		s = s "\t\thardhalt();\n";
 		s = s "}\n\n";
 	}
 	if(objtype == "power"){

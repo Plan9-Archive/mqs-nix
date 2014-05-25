@@ -910,7 +910,7 @@ cecwrite(Chan *c, void *a, long n, vlong)
 static void
 cecinit(void)
 {
-	addconsdev(nil, cecputs, -1, 0);
+	addconsdev(nil, cecputs, -1, Ciprint);
 }
 
 Dev cecdevtab = {

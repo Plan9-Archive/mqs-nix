@@ -422,8 +422,16 @@ chkcapacity10(uchar *p, uvlong *ns, uint *nss)
 static int
 chkcapacity16(uchar *p, uvlong *ns, uint *nss)
 {
+	uint l2p;
+
 	*ns = getbe(p, 8);
 	*nss = getbe(p + 8, 4);
+	l2p = p[13]&7;
+	if(l2p != 0){
+		/* 512e drive; use physical sector size */
+		*ns >>= l2p;
+		*nss <<= l2p;
+	}
 	return 0;
 }
 
@@ -433,7 +441,8 @@ struct Spdtab {
 	char	*s;
 };
 Spdtab spdtab[] = {
-[1]	Spd60,	"6.0gbps",
+[1]	Spd120,	"12gbps",
+	Spd60,	"6.0gbps",
 	Spd30,	"3.0gbps",
 	Spd15,	"1.5gbps",
 };

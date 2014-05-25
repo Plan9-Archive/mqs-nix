@@ -16,20 +16,19 @@ alarmkproc(void*)
 	for(;;){
 		now = sys->ticks;
 		qlock(&alarms);
-		while((rp = alarms.head) && (long)(now - rp->alarm) >= 0){
-			if(rp->alarm != 0L){
-				if(canqlock(&rp->debug)){
-					if(!waserror()){
-						postnote(rp, 0, "alarm", NUser);
-						poperror();
-					}
-					qunlock(&rp->debug);
-					rp->alarm = 0L;
-				}else
-					break;
-			}
-			alarms.head = rp->palarm;
+		for(rp = alarms.head; rp != nil; rp = rp->palarm){
+			if(rp->alarm == 0)
+				continue;
+			if((long)(now - rp->alarm) < 0)
+				break;
+			if(canqlock(&rp->debug))
+				break;
+			if(rp->alarm != 0)
+				postnote(rp, 0, "alarm", NUser);
+			rp->alarm = 0;
+			qunlock(&rp->debug);
 		}
+		alarms.head = rp;
 		qunlock(&alarms);
 
 		sleep(&alarmr, return0, 0);
@@ -48,7 +47,8 @@ checkalarms(void)
 	p = alarms.head;
 	now = sys->ticks;
 
-	if(p != nil && (long)(now - p->alarm) >= 0)
+	if(p != nil)
+	if(p->alarm == 0 || (long)(now - p->alarm) >= 0)
 		wakeup(&alarmr);
 }
 
@@ -79,23 +79,16 @@ procalarm(ulong time)
 		}
 		l = &f->palarm;
 	}
-
 	up->palarm = 0;
-	if(alarms.head) {
-		l = &alarms.head;
-		for(f = *l; f; f = f->palarm) {
-			if((long)(f->alarm - when) >= 0) {
-				up->palarm = f;
-				*l = up;
-				goto done;
-			}
-			l = &f->palarm;
-		}
-		*l = up;
+	l = &alarms.head;
+	for(f = *l; f != nil; f = f->palarm) {
+		time = f->alarm;
+		if(time != 0 && (long)(time - when) >= 0)
+			break;
+		l = &f->palarm;
 	}
-	else
-		alarms.head = up;
-done:
+	up->palarm = f;
+	*l = up;
 	up->alarm = when;
 	qunlock(&alarms);
 

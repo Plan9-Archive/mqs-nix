@@ -52,18 +52,31 @@ setbootcmd(int argc, char *argv[])
 	free(buf);
 }
 
+static void
+checkmagic(ulong magic)
+{
+	int i;
+	ulong except[] = {S_MAGIC, I_MAGIC, ~0, ~0, };
+
+	for(i = 0;; i++)
+		if(AOUT_MAGIC == except[i] || except[i] == ~0)
+			break;
+	if(magic != AOUT_MAGIC && magic != except[i^1])
+		error(Ebadexec);
+}
+
 void
 rebootcmd(int argc, char *argv[])
 {
 	Chan *c;
 	Exec exec;
 	ulong magic, text, rtext, entry, data, size;
-	uchar *p;
+	uchar *p, ulv[8];
 
 	if(argc == 0)
 		exit(0);
 
-	c = namec(argv[0], Aopen, OEXEC, 0);
+	c = namec(argv[0], Aopen, OREAD, 0);
 	if(waserror()){
 		cclose(c);
 		nexterror();
@@ -74,11 +87,13 @@ rebootcmd(int argc, char *argv[])
 	entry = l2be(exec.entry);
 	text = l2be(exec.text);
 	data = l2be(exec.data);
-	if(magic != AOUT_MAGIC)
-		error(Ebadexec);
 
+	checkmagic(magic);
+
+	if(magic & HDR_MAGIC)
+		readn(c, ulv, 8);
 	/* round text out to page boundary */
-	rtext = ROUNDUP(entry+text, 1<<USEGSHIFT) - entry;
+	rtext = ROUNDUP(entry+text, PGSZ) - entry;
 	size = rtext + data;
 	p = malloc(size);
 	if(p == nil)
@@ -97,6 +112,11 @@ rebootcmd(int argc, char *argv[])
 	setbootcmd(argc-1, argv+1);
 
 	reboot((void*)entry, p, size);
-
 	panic("return from reboot!");
+
+	poperror();
+	free(p);
+
+	cclose(c);
+	poperror();
 }

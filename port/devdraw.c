@@ -229,9 +229,10 @@ drawgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 		case Q3rd:
 			cl = drawclientofpath(c->qid.path);
 			if(cl == nil)
-				strcpy(up->genbuf, "??");
+				strncpy(up->genbuf, "??", sizeof up->genbuf);
 			else
-				sprint(up->genbuf, "%d", cl->clientid);
+				snprint(up->genbuf, sizeof up->genbuf,
+					"%d", cl->clientid);
 			mkqid(&q, Q2nd, 0, QTDIR);
 			devdir(c, q, up->genbuf, 0, eve, 0500, dp);
 			break;
@@ -262,9 +263,9 @@ drawgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 	}
 
 	if(t == Qwinname){
-			mkqid(&q, Qwinname, 0, QTFILE);
-			devdir(c, q, "winname", 0, eve, 0444, dp);
-			return 1;
+		mkqid(&q, Qwinname, 0, QTFILE);
+		devdir(c, q, "winname", 0, eve, 0444, dp);
+		return 1;
 	}
 
 	/*
@@ -279,7 +280,8 @@ drawgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 			cl = sdraw.client[s-1];
 			if(cl == 0)
 				return 0;
-			sprint(up->genbuf, "%d", cl->clientid);
+			snprint(up->genbuf, sizeof up->genbuf, "%d",
+				cl->clientid);
 			mkqid(&q, (s<<QSHIFT)|Q3rd, 0, QTDIR);
 			devdir(c, q, up->genbuf, 0, eve, 0555, dp);
 			return 1;
@@ -1192,10 +1194,13 @@ drawread(Chan *c, void *a, long n, vlong offset)
 				error(Enodrawimage);
 			i = di->image;
 		}
-		n = sprint(a, "%11d %11d %11s %11d %11d %11d %11d %11d %11d %11d %11d %11d ",
-			cl->clientid, cl->infoid, chantostr(buf, i->chan), (i->flags&Frepl)==Frepl,
+		n = snprint(a, n,
+			"%11d %11d %11s %11d %11d %11d %11d %11d %11d %11d %11d %11d ",
+			cl->clientid, cl->infoid, chantostr(buf, i->chan),
+			(i->flags&Frepl)==Frepl,
 			i->r.min.x, i->r.min.y, i->r.max.x, i->r.max.y,
-			i->clipr.min.x, i->clipr.min.y, i->clipr.max.x, i->clipr.max.y);
+			i->clipr.min.x, i->clipr.min.y, i->clipr.max.x,
+			i->clipr.max.y);
 		cl->infoid = -1;
 		break;
 
@@ -1207,7 +1212,9 @@ drawread(Chan *c, void *a, long n, vlong offset)
 		m = 0;
 		for(index = 0; index < 256; index++){
 			getcolor(index, &red, &green, &blue);
-			m += sprint((char*)p+m, "%11d %11ud %11ud %11ud\n", index, red>>24, green>>24, blue>>24);
+			m += snprint((char*)p+m, 4*12*256+1 - m,
+				"%11d %11ud %11ud %11ud\n", index,
+				red>>24, green>>24, blue>>24);
 		}
 		n = readstr(offset, a, n, (char*)p);
 		free(p);
@@ -2197,7 +2204,7 @@ drawactive(int active)
 {
 	if(active){
 		drawblankscreen(0);
-		sdraw.blanktime = MACHP(0)->ticks;
+		sdraw.blanktime = sys->ticks;
 	}else{
 		if(blanktime && sdraw.blanktime && TK2SEC(sys->ticks - sdraw.blanktime)/60 >= blanktime)
 			drawblankscreen(1);

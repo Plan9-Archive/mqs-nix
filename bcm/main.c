@@ -4,7 +4,6 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
-#include "init.h"
 
 /* Firmware compatibility */
 #define	Minfirmrev	326770
@@ -20,8 +19,6 @@
 
 uintptr kseg0 = KZERO;
 Mach*	machaddr[MACHMAX];
-Sys	thesys;
-Sys	*sys = &thesys;
 Conf	conf;
 ulong	memsize = 128*1024*1024;
 usize	segpgsizes = (1<<PGSHIFT);	/* only page size available */
@@ -188,14 +185,6 @@ ataginit(Atag *a)
 	}
 }
 
-static void
-sysinit(void)
-{
-	sys = &thesys;
-	sys->machptr = machaddr;
-	sys->copymode = 0;		/* copy on write */
-}
-
 void
 machinit(void)
 {
@@ -204,10 +193,6 @@ machinit(void)
 
 	m->ticks = 1;
 	m->perf.period = 1;
-	m->online = 1;
-	m->pgsz[0] = 1<<PGSHIFT;
-	m->pgszlg2[0] = PGSHIFT;
-	m->npgsz = 1;
 
 	conf.nmach = 1;
 
@@ -260,7 +245,6 @@ main(void)
 	okay(1);
 	m = (Mach*)MACHADDR;
 	memset(edata, 0, end - edata);	/* clear bss */
-	sysinit();
 	machinit();
 	mmuinit1();
 
@@ -274,8 +258,7 @@ main(void)
 	uartconsinit();
 	screeninit();
 
-	fmtinit();
-	print("\nnix\n");
+	print("\nPlan 9 from Bell Labs\n\n");
 	rev = getfirmware();
 	print("Firmware: rev %d\n", rev);
 	if(rev < Minfirmrev){
@@ -291,11 +274,10 @@ main(void)
 		swcursorinit();
 	cpuidprint();
 
-	psinit(conf.nproc);
+	procinit0();
 //	initseg();
-	initimage();
 	links();
-	devtabreset();
+//	chandevreset();			/* most devices are discovered here */
 	pageinit();
 	swapinit();
 	userinit();
@@ -325,7 +307,7 @@ init0(void)
 	up->slash->path = newpath("/");
 	up->dot = cclone(up->slash);
 
-	devtabinit();
+	chandevinit();
 
 	if(!waserror()){
 		snprint(buf, sizeof(buf), "%s %s", "ARM", conffile);
@@ -413,7 +395,7 @@ userinit(void)
 	 * Kernel Stack
 	 */
 	p->sched.pc = PTR2UINT(init0);
-	p->sched.sp = PTR2UINT(p->kstack+KSTACK-sizeof(up->arg)-sizeof(uintptr));
+	p->sched.sp = PTR2UINT(p->kstack+KSTACK-sizeof(up->s.args)-sizeof(uintptr));
 	p->sched.sp = STACKALIGN(p->sched.sp);
 
 	/*
@@ -427,8 +409,7 @@ userinit(void)
 	s = newseg(SG_STACK, USTKTOP-USTKSIZE, USTKTOP);
 	s->flushme++;
 	p->seg[SSEG] = s;
-//	pg = newpage(1, 0, USTKTOP-(1<<s->lgpgsize), s->lgpgsize);
-	pg = newpage(1, 0, USTKTOP-m->pgsz[s->pgszi], m->pgsz[s->pgszi], -1);
+	pg = newpage(1, 0, USTKTOP-(1<<s->lgpgsize), s->lgpgsize);
 	segpage(s, pg);
 	k = kmap(pg);
 	bootargs(VA(k));
@@ -439,8 +420,7 @@ userinit(void)
 	 */
 	s = newseg(SG_TEXT, UTZERO, UTZERO+PGSZ);
 	p->seg[TSEG] = s;
-//	pg = newpage(1, 0, UTZERO, s->lgpgsize);
-	pg = newpage(1, 0, UTZERO, m->pgsz[s->pgszi], -1);
+	pg = newpage(1, 0, UTZERO, s->lgpgsize);
 	memset(pg->cachectl, PG_TXTFLUSH, sizeof(pg->cachectl));
 	segpage(s, pg);
 	k = kmap(s->map[0]->pages[0]);
@@ -454,7 +434,7 @@ void
 confinit(void)
 {
 	int i;
-//	ulong kpages;
+	ulong kpages;
 	uintptr pa;
 	char *p;
 
@@ -499,29 +479,33 @@ confinit(void)
 		conf.nproc *= 3;
 	if(conf.nproc > 2000)
 		conf.nproc = 2000;
+	conf.nswap = conf.npage*3;
+	conf.nswppo = 4096;
 	conf.nimage = 200;
+
+	conf.copymode = 0;		/* copy on write */
 
 	/*
 	 * Guess how much is taken by the large permanent
 	 * datastructures. Mntcache and Mntrpc are not accounted for
 	 * (probably ~300KB).
 	 */
-//	kpages = conf.npage - conf.upages;
-//	kpages *= PGSZ;
-//	kpages -= conf.upages*sizeof(Page)
-//		+ conf.nproc*sizeof(Proc)
-//		+ conf.nimage*sizeof(Image)
-//		+ conf.nswap
-//		+ conf.nswppo*sizeof(Page);
-//	mainmem->maxsize = kpages;
-//	if(!cpuserver)
-//		/*
-//		 * give terminals lots of image memory, too; the dynamic
-//		 * allocation will balance the load properly, hopefully.
-//		 * be careful with 32-bit overflow.
-//		 */
-//		imagmem->maxsize = kpages;
-//
+	kpages = conf.npage - conf.upages;
+	kpages *= PGSZ;
+	kpages -= conf.upages*sizeof(Page)
+		+ conf.nproc*sizeof(Proc)
+		+ conf.nimage*sizeof(Image)
+		+ conf.nswap
+		+ conf.nswppo*sizeof(Page);
+	mainmem->maxsize = kpages;
+	if(!cpuserver)
+		/*
+		 * give terminals lots of image memory, too; the dynamic
+		 * allocation will balance the load properly, hopefully.
+		 * be careful with 32-bit overflow.
+		 */
+		imagmem->maxsize = kpages;
+
 }
 
 static void

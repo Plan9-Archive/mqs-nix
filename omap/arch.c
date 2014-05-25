@@ -161,12 +161,6 @@ userureg(Ureg* ureg)
 	return (ureg->psr & PsrMask) == PsrMusr;
 }
 
-int
-corecolor(int)
-{
-	return -1;
-}
-
 /*
  * atomic ops
  * make sure that we don't drag in the C library versions

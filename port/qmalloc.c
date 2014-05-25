@@ -379,8 +379,8 @@ msize(void* ap)
 	return (nunits-1) * sizeof(Header);
 }
 
-static void
-mallocreadfmt(char* s, char* e)
+char*
+mallocstats(char* s, char* e)
 {
 	char *p;
 	Header *q;
@@ -388,11 +388,15 @@ mallocreadfmt(char* s, char* e)
 	uvlong t;
 	Qlist *qlist;
 
+	/*
+	 * upages calculation is incorrect due to Blocks, etc. directly
+	 * allocated from KSEG2
+	 */
 	p = seprint(s, e,
 		"%llud memory\n"
 		"%d pagesize\n"
 		"%llud kernel\n"
-		"??/%llud user\n",
+		"%llud user\n",
 		sys->npages*PGSZ,
 		PGSZ,
 		sys->kpages,
@@ -439,6 +443,7 @@ mallocreadfmt(char* s, char* e)
 		p = seprint(p, e, "%s %ud\n", qstatstr[i], qstats[i]);
 	}
 	MUNLOCK;
+	return p;
 }
 
 long
@@ -451,7 +456,7 @@ mallocreadsummary(Chan*, void *a, long n, long offset)
 		free(alloc);
 		nexterror();
 	}
-	mallocreadfmt(alloc, alloc+16*READSTR);
+	mallocstats(alloc, alloc+16*READSTR);
 	n = readstr(offset, a, n, alloc);
 	poperror();
 	free(alloc);

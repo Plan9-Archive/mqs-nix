@@ -9,7 +9,7 @@
 #include "../port/netif.h"
 #include "etherif.h"
 
-extern int archether(uint ctlno, Ether *ether);
+extern int archether(unsigned ctlno, Ether *ether);
 
 static Ether *etherxx[MaxEther];
 
@@ -36,7 +36,7 @@ etherattach(char* spec)
 		chanfree(chan);
 		nexterror();
 	}
-	chan->devno = ctlrno;
+	chan->dev = ctlrno;
 	if(etherxx[ctlrno]->attach)
 		etherxx[ctlrno]->attach(etherxx[ctlrno]);
 	poperror();
@@ -46,30 +46,30 @@ etherattach(char* spec)
 static Walkqid*
 etherwalk(Chan* chan, Chan* nchan, char** name, int nname)
 {
-	return netifwalk(etherxx[chan->devno], chan, nchan, name, nname);
+	return netifwalk(etherxx[chan->dev], chan, nchan, name, nname);
 }
 
-static long
-etherstat(Chan* chan, uchar* dp, long n)
+static int
+etherstat(Chan* chan, uchar* dp, int n)
 {
-	return netifstat(etherxx[chan->devno], chan, dp, n);
+	return netifstat(etherxx[chan->dev], chan, dp, n);
 }
 
 static Chan*
 etheropen(Chan* chan, int omode)
 {
-	return netifopen(etherxx[chan->devno], chan, omode);
+	return netifopen(etherxx[chan->dev], chan, omode);
 }
 
 static void
-ethercreate(Chan*, char*, int, int)
+ethercreate(Chan*, char*, int, ulong)
 {
 }
 
 static void
 etherclose(Chan* chan)
 {
-	netifclose(etherxx[chan->devno], chan);
+	netifclose(etherxx[chan->dev], chan);
 }
 
 static long
@@ -78,7 +78,7 @@ etherread(Chan* chan, void* buf, long n, vlong off)
 	Ether *ether;
 	ulong offset = off;
 
-	ether = etherxx[chan->devno];
+	ether = etherxx[chan->dev];
 	if((chan->qid.type & QTDIR) == 0 && ether->ifstat){
 		/*
 		 * With some controllers it is necessary to reach
@@ -94,15 +94,15 @@ etherread(Chan* chan, void* buf, long n, vlong off)
 }
 
 static Block*
-etherbread(Chan* chan, long n, vlong offset)
+etherbread(Chan* chan, long n, ulong offset)
 {
-	return netifbread(etherxx[chan->devno], chan, n, offset);
+	return netifbread(etherxx[chan->dev], chan, n, offset);
 }
 
-static long
-etherwstat(Chan* chan, uchar* dp, long n)
+static int
+etherwstat(Chan* chan, uchar* dp, int n)
 {
-	return netifwstat(etherxx[chan->devno], chan, dp, n);
+	return netifwstat(etherxx[chan->dev], chan, dp, n);
 }
 
 Block*
@@ -156,7 +156,7 @@ etheriq(Ether* ether, Block* bp, int fromwire)
 			else if(xbp = iallocb(len)){
 				memmove(xbp->wp, pkt, len);
 				xbp->wp += len;
-				if(qpass(f->iq, xbp) < 0)
+				if(qpass(f->in, xbp) < 0)
 					ether->soverflows++;
 			}
 			else
@@ -165,7 +165,7 @@ etheriq(Ether* ether, Block* bp, int fromwire)
 	}
 
 	if(fx){
-		if(qpass(fx->iq, bp) < 0)
+		if(qpass(fx->in, bp) < 0)
 			ether->soverflows++;
 		return 0;
 	}
@@ -221,7 +221,7 @@ etherwrite(Chan* chan, void* buf, long n, vlong)
 	int nn, onoff;
 	Cmdbuf *cb;
 
-	ether = etherxx[chan->devno];
+	ether = etherxx[chan->dev];
 	if(NETTYPE(chan->qid.path) != Ndataqid) {
 		nn = netifwrite(ether, chan, buf, n);
 		if(nn >= 0)
@@ -263,7 +263,7 @@ etherwrite(Chan* chan, void* buf, long n, vlong)
 }
 
 static long
-etherbwrite(Chan* chan, Block* bp, vlong)
+etherbwrite(Chan* chan, Block* bp, ulong)
 {
 	Ether *ether;
 	long n;
@@ -279,7 +279,7 @@ etherbwrite(Chan* chan, Block* bp, vlong)
 		freeb(bp);
 		return n;
 	}
-	ether = etherxx[chan->devno];
+	ether = etherxx[chan->dev];
 
 	if(n > ether->maxmtu){
 		freeb(bp);
@@ -356,14 +356,14 @@ etherreset(void)
 		for(n = 0; cards[n].type; n++){
 			if(cistrcmp(cards[n].type, ether->type))
 				continue;
-		//	for(i = 0; i < ether->nopt; i++){
-		//		if(cistrncmp(ether->opt[i], "ea=", 3) == 0){
-		//			if(parseether(ether->ea, &ether->opt[i][3]) == -1)
-		//				memset(ether->ea, 0, Eaddrlen);
-		//		}
-		//		else if(cistrcmp(ether->opt[i], "100BASE-TXFD") == 0)
-		//			ether->mbps = 100;
-		//	}
+			for(i = 0; i < ether->nopt; i++){
+				if(cistrncmp(ether->opt[i], "ea=", 3) == 0){
+					if(parseether(ether->ea, &ether->opt[i][3]) == -1)
+						memset(ether->ea, 0, Eaddrlen);
+				}
+				else if(cistrcmp(ether->opt[i], "100BASE-TXFD") == 0)
+					ether->mbps = 100;
+			}
 			if(cards[n].reset(ether))
 				break;
 			snprint(name, sizeof(name), "ether%d", ctlrno);
@@ -373,15 +373,15 @@ etherreset(void)
 					ether, 0, name);
 
 			i = snprint(buf, sizeof buf,
-				"#l%d: %s: %dMbps port %#ux irq %d tu %d",
-				ctlrno, ether->type, ether->mbps, 0 /*ether->port*/,
+				"#l%d: %s: %dMbps port %#lux irq %d tu %d",
+				ctlrno, ether->type, ether->mbps, ether->port,
 				ether->irq, ether->mtu);
-		//	if(ether->mem)
-		//		i += snprint(buf+i, sizeof buf - i,
-		//			" addr %#lux", PADDR(ether->mem));
-		//	if(ether->size)
-		//		i += snprint(buf+i, sizeof buf - i,
-		//			" size %#luX", ether->size);
+			if(ether->mem)
+				i += snprint(buf+i, sizeof buf - i,
+					" addr %#lux", PADDR(ether->mem));
+			if(ether->size)
+				i += snprint(buf+i, sizeof buf - i,
+					" size %#luX", ether->size);
 			i += snprint(buf+i, sizeof buf - i,
 				": %2.2ux%2.2ux%2.2ux%2.2ux%2.2ux%2.2ux",
 				ether->ea[0], ether->ea[1], ether->ea[2],
@@ -433,7 +433,7 @@ ethershutdown(void)
 #define POLY 0xedb88320
 
 /* really slow 32 bit crc for ethers */
-uint
+ulong
 ethercrc(uchar *p, int len)
 {
 	int i, j;
@@ -469,7 +469,7 @@ dumpnetif(Netif *netif)
 	print("netif %s ", netif->name);
 	print("limit %d mbps %d link %d ",
 		netif->limit, netif->mbps, netif->link);
-	print("inpkts %lld outpkts %lld errs %lld\n",
+	print("inpkts %lld outpkts %lld errs %d\n",
 		netif->inpackets, netif->outpackets,
 		netif->crcs + netif->oerrs + netif->frames + netif->overflows +
 		netif->buffs + netif->soverflows);

@@ -1377,6 +1377,11 @@ qiwrite(Queue *q, void *vp, int len)
 
 		ilock(q);
 
+		if(q->state & Qclosed){
+			iunlock(q);
+			return -1;
+		}
+
 		/* we use an artificially high limit for kernel prints since anything
 		 * over the limit gets dropped
 		 */

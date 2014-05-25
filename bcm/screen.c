@@ -349,7 +349,7 @@ screeninit(void)
 	memimageinit();
 	memdefont = getmemdefont();
 	screenwin();
-	consputs = myscreenputs;
+	screenputs = myscreenputs;
 }
 
 void
@@ -370,13 +370,13 @@ attachscreen(Rectangle *r, ulong *chan, int* d, int *width, int *softscreen)
 }
 
 void
-getcolor(int p, uint *pr, uint *pg, uint *pb)
+getcolor(ulong p, ulong *pr, ulong *pg, ulong *pb)
 {
 	USED(p, pr, pg, pb);
 }
 
 int
-setcolor(uint p, uint r, uint g, uint b)
+setcolor(ulong p, ulong r, ulong g, ulong b)
 {
 	USED(p, r, g, b);
 	return 0;

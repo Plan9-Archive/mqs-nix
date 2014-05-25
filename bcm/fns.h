@@ -1,6 +1,5 @@
 #include "../port/portfns.h"
 
-extern void sysrforkret(void);
 Dirtab*	addarchfile(char*, int, long(*)(Chan*,void*,long,vlong), long(*)(Chan*,void*,long,vlong));
 extern void archreboot(void);
 extern void armtimerset(int);
@@ -11,7 +10,6 @@ extern void cacheiinv(void);
 extern void cacheuwbinv(void);
 extern uintptr cankaddr(uintptr pa);
 extern int cas32(void*, u32int, u32int);
-#define CASW(p, e, n)	cas32((p), (e), (n))
 extern void checkmmu(uintptr, uintptr);
 extern void clockinit(void);
 extern int cmpswap(long*, long, long);
@@ -52,7 +50,7 @@ extern void swcursorinit(void);
 extern void syscallfmt(int syscallno, va_list list);
 extern void sysretfmt(int, va_list, Ar0*, uvlong, uvlong);
 extern int tas32(void*);
-#define TAS(x) tas32(x)
+extern int TAS(void*);
 extern void touser(uintptr);
 extern void trapinit(void);
 extern void uartconsinit(void);
@@ -73,7 +71,7 @@ extern void fpuprocrestore(Proc*);
 extern void fpuprocsave(Proc*);
 extern void fpusysprocsetup(Proc*);
 extern void fpusysrfork(Ureg*);
-extern void fpusysrforkchild(Proc*, Proc*);
+extern void fpusysrforkchild(Proc*, Ureg*, Proc*);
 extern int fpuemu(Ureg*);
 /*
  * Things called from port.
@@ -83,7 +81,6 @@ extern int islo(void);
 extern void microdelay(int);			/* only edf.c */
 extern void evenaddr(uintptr);
 extern void idlehands(void);
-#define hardhalt()	idlehands()
 extern void setkernur(Ureg*, Proc*);		/* only devproc.c */
 extern void* sysexecregs(uintptr, uint, uint);
 extern void sysprocsetup(Proc*);

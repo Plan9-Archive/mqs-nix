@@ -299,7 +299,7 @@ seprintep(char *s, char *se, Ep *ep, int all)
 		s = seprint(s, se, " idle");
 	if(all){
 		s = seprint(s, se, " load %uld", ep->load);
-		s = seprint(s, se, " ref %d addr %#p", ep->ref, ep);
+		s = seprint(s, se, " ref %ld addr %#p", ep->ref, ep);
 		s = seprint(s, se, " idx %d", ep->idx);
 		if(ep->name != nil)
 			s = seprint(s, se, " name '%s'", ep->name);
@@ -693,8 +693,8 @@ hciprobe(int cardno, int ctlrno)
 	snprint(name, sizeof(name), "usb%s", hcitypes[cardno].type);
 	intrenable(hp->irq, hp->interrupt, hp, UNKNOWN, name);
 
-	print("#u/usb/ep%d.0: %s: port %#ux irq %d\n",
-		epnb, hcitypes[cardno].type, 0x1773 /*hp->port*/, hp->irq);
+	print("#u/usb/ep%d.0: %s: port %#luX irq %d\n",
+		epnb, hcitypes[cardno].type, hp->port, hp->irq);
 	epnb++;
 
 	return hp;
@@ -760,8 +760,8 @@ usbwalk(Chan *c, Chan *nc, char **name, int nname)
 	return devwalk(c, nc, name, nname, nil, 0, usbgen);
 }
 
-static long
-usbstat(Chan *c, uchar *db, long n)
+static int
+usbstat(Chan *c, uchar *db, int n)
 {
 	return devstat(c, db, n, nil, 0, usbgen);
 }
@@ -885,7 +885,7 @@ usbclose(Chan *c)
 	ep = getep(qid2epidx(q));
 	if(ep == nil)
 		return;
-	deprint("usbclose q %#x fid %d ref %d\n", q, c->fid, ep->ref);
+	deprint("usbclose q %#x fid %d ref %ld\n", q, c->fid, ep->ref);
 	if(waserror()){
 		putep(ep);
 		nexterror();
@@ -1423,7 +1423,7 @@ usbwrite(Chan *c, void *a, long n, vlong off)
 }
 
 Block*
-usbbread(Chan *c, long n, vlong offset)
+usbbread(Chan *c, long n, ulong offset)
 {
 	Block *bp;
 
@@ -1440,7 +1440,7 @@ usbbread(Chan *c, long n, vlong offset)
 }
 
 long
-usbbwrite(Chan *c, Block *bp, vlong offset)
+usbbwrite(Chan *c, Block *bp, ulong offset)
 {
 	long n;
 

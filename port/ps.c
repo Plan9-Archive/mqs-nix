@@ -63,7 +63,7 @@ psincref(int i)
 	/*
 	 * Placeholder.
 	 */
-	if(i >= conf.nproc)
+	if(i >= sys->nproc)
 		return nil;
 	return &procalloc.arena[i];
 }

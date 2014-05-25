@@ -141,10 +141,13 @@ fastticks(uvlong *hz)
 	return m->fastclock;
 }
 
-uvlong
+ulong
 perfticks(void)
 {
-	return fastticks(nil);
+	Armtimer *tm;
+
+	tm = (Armtimer*)ARMTIMER;
+	return tm->count;
 }
 
 void
@@ -163,7 +166,7 @@ armtimerset(int n)
 	}
 }
 
-uint
+ulong
 µs(void)
 {
 	if(SystimerFreq != 1*Mhz)

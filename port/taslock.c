@@ -16,90 +16,7 @@ uvlong maxilockcycles;
 uintptr maxlockpc;
 uintptr maxilockpc;
 
-Lockstats lockstats;
-Waitstats waitstats;
-Lock waitstatslk;
-
-static void
-newwaitstats(void)
-{
-	lock(&waitstatslk);
-	if(waitstats.nsalloc == 0){
-		waitstats.stat = malloc(NWstats * sizeof *waitstats.stat);
-		if(waitstats.stat != nil)
-			waitstats.nsalloc = NWstats;
-	}
-	unlock(&waitstatslk);
-}
-
-void
-startwaitstats(int on)
-{
-	newwaitstats();
-	waitstats.on = on;
-	print("lockstats %s\n", on? "on": "off");
-}
-
-void
-clearwaitstats(void)
-{
-	waitstats.nstats = 0;
-}
-
-void
-addwaitstat(uintptr pc, uvlong t0, int type)
-{
-	uint i, nstats;
-	uvlong w;
-	Waitstat *s;
-
-	if(waitstats.on == 0)
-		return;
-
-	cycles(&w);
-	w -= t0;
-
-	/* hope to slide by with no lock */
-	coherence();
-	nstats = waitstats.nstats;
-	for(i = 0; i < nstats; i++)
-		if((s = waitstats.stat + i)->pc == pc){
-			ainc(&s->count);
-			if(w > s->maxwait)
-				s->maxwait = w;		/* race but ok */
-			s->cumwait += w;		/* race but ok */
-			return;
-		}
-
-	if(!canlock(&waitstatslk))
-		return;
-
-	/* newly created stat? */
-	for(i = nstats; i < waitstats.nstats; i++)
-		if((s = waitstats.stat + i)->pc == pc){
-			ainc(&s->count);
-			if(w > s->maxwait)
-				s->maxwait = w;		/* race but ok */
-			s->cumwait += w;
-			unlock(&waitstatslk);
-			return;
-		}
-
-	if(waitstats.nstats == waitstats.nsalloc){
-		unlock(&waitstatslk);
-		return;
-	}
-
-	s = waitstats.stat + waitstats.nstats;
-	s->count = 1;
-	s->type = type;
-	s->maxwait = w;
-	s->cumwait = w;
-	s->pc = pc;
-	waitstats.nstats++;
-
-	unlock(&waitstatslk);
-}
+extern	Lock	waitstatslk;		/* devws */
 
 void
 lockloop(Lock *l, uintptr pc)
@@ -125,8 +42,8 @@ lock(Lock *l)
 
 	lockstats.locks++;
 	if(up)
-		ainc(&up->nlocks);	/* prevent being scheded */
-	if(TAS(&l->key) == 0){
+		up->nlocks++;	/* prevent being scheded */
+	if(tas(&l->key) == 0){
 		if(up)
 			up->lastlock = l;
 		l->pc = pc;
@@ -138,7 +55,7 @@ lock(Lock *l)
 		return 0;
 	}
 	if(up)
-		adec(&up->nlocks);
+		up->nlocks--;
 
 	cycles(&t0);
 	lockstats.glare++;
@@ -146,7 +63,7 @@ lock(Lock *l)
 		lockstats.inglare++;
 		i = 0;
 		while(l->key){
-			if(conf.nmach < 2 && up && up->edf && (up->edf->flags & Admitted)){
+			if(sys->nmach < 2 && up && up->edf && (up->edf->flags & Admitted)){
 				/*
 				 * Priority inversion, yield on a uniprocessor; on a
 				 * multiprocessor, the other processor will unlock
@@ -159,10 +76,11 @@ lock(Lock *l)
 				i = 0;
 				lockloop(l, pc);
 			}
+			pause();
 		}
 		if(up)
-			ainc(&up->nlocks);
-		if(TAS(&l->key) == 0){
+			up->nlocks++;
+		if(tas(&l->key) == 0){
 			if(up)
 				up->lastlock = l;
 			l->pc = pc;
@@ -175,7 +93,7 @@ lock(Lock *l)
 			return 1;
 		}
 		if(up)
-			adec(&up->nlocks);
+			up->nlocks--;
 	}
 }
 
@@ -190,7 +108,7 @@ ilock(Lock *l)
 	lockstats.locks++;
 
 	pl = splhi();
-	if(TAS(&l->key) != 0){
+	if(tas(&l->key) != 0){
 		cycles(&t0);
 		lockstats.glare++;
 		/*
@@ -202,9 +120,9 @@ ilock(Lock *l)
 			lockstats.inglare++;
 			splx(pl);
 			while(l->key)
-				;
+				pause();
 			pl = splhi();
-			if(TAS(&l->key) == 0){
+			if(tas(&l->key) == 0){
 				if(l != &waitstatslk)
 					addwaitstat(pc, t0, WSlock);
 				goto acquire;
@@ -228,10 +146,10 @@ int
 canlock(Lock *l)
 {
 	if(up)
-		ainc(&up->nlocks);
-	if(TAS(&l->key)){
+		up->nlocks++;
+	if(tas(&l->key)){
 		if(up)
-			adec(&up->nlocks);
+			up->nlocks--;
 		return 0;
 	}
 
@@ -271,7 +189,7 @@ unlock(Lock *l)
 	l->key = 0;
 	coherence();
 
-	if(up && adec(&up->nlocks) == 0 && up->delaysched && islo()){
+	if(up && --up->nlocks == 0 && up->delaysched && islo()){
 		/*
 		 * Call sched if the need arose while locks were held
 		 * But, don't do it from interrupt routines, hence the islo() test
@@ -316,11 +234,22 @@ iunlock(Lock *l)
 	splx(pl);
 }
 
-void
-portmwait(void *value)
+int
+ownlock(Lock *l)
 {
-	while (*(void**)value == nil)
-		;
+	return l->m == MACHP(m->machno);
 }
 
-void (*mwait)(void *) = portmwait;
+uintptr
+lockgetpc(Lock *l)
+{
+	if(l != nil)
+		return l->pc;
+	return 0;
+}
+
+void
+locksetpc(Lock *l, uintptr pc)
+{
+	l->pc = pc;
+}

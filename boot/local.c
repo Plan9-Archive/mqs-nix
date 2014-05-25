@@ -9,25 +9,13 @@ static char **args;
 void
 configlocal(Method *mp)
 {
-	char *p;
-	int n;
-
 	if(*sys == '/' || *sys == '#'){
 		/*
 		 *  if the user specifies the disk in the boot cmd or
 		 * 'root is from' prompt, use it
 		 */
 		disk = sys;
-	} else if(strncmp(argv0, "dksc(0,", 7) == 0){
-		/*
-		 *  on many mips arg0 of the boot command specifies the
-		 *  scsi logical unit number
-		 */
-		p = strchr(argv0, ',');
-		n = strtoul(p+1, 0, 10);
-		sprint(diskname, "#w%d/sd%dfs", n, n);
-		disk = diskname;
-	} else if(mp->arg){
+	} else if(mp->arg != nil){
 		/*
 		 *  a default is supplied when the kernel is made
 		 */
@@ -42,7 +30,7 @@ configlocal(Method *mp)
 	}
 
 	/* if we've decided on one, pass it on to all programs */
-	if(disk)
+	if(disk != nil)
 		setenv("bootdisk", disk);
 
 	USED(mp);
@@ -130,7 +118,7 @@ connectlocalkfs(void)
 }
 
 void
-run(char *file, ...)
+run(int must, char *file, ...)
 {
 	int i, pid;
 
@@ -143,7 +131,7 @@ run(char *file, ...)
 	default:
 		while ((i = waitpid()) != pid && i != -1)
 			;
-		if(i == -1)
+		if(must && i == -1)
 			fatal(smprint("wait failed running %s", file));
 	}
 }
@@ -224,7 +212,7 @@ connectlocalfossil(void)
 				f[2] = "tcp!127.1!8000";
 			}
 			configloopback();
-			run("/boot/venti", "-c", f[0], "-a", f[1], "-h", f[2], 0);
+			run(1, "/boot/venti", "-c", f[0], "-a", f[1], "-h", f[2], nil);
 			/*
 			 * If the announce address is tcp!*!foo, then set
 			 * $venti to tcp!127.1!foo instead, which is actually dialable.
@@ -245,7 +233,7 @@ connectlocalfossil(void)
 
 	/* start fossil */
 	print("fossil(%s)...", partition);
-	run("/boot/fossil", "-f", partition, "-c", "srv -A fboot", "-c", "srv -p fscons", 0);
+	run(1, "/boot/fossil", "-f", partition, "-c", "srv -A fboot", "-c", "srv -p fscons", nil);
 	fd = open("#s/fboot", ORDWR);
 	if(fd < 0){
 		print("open #s/fboot: %r\n");

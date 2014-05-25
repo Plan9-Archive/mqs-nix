@@ -12,12 +12,14 @@ typedef struct Egrp	Egrp;
 typedef struct Evalue	Evalue;
 typedef struct Fgrp	Fgrp;
 typedef struct Image	Image;
+typedef struct Kbscan	Kbscan;
 typedef struct Log	Log;
 typedef struct Logflag	Logflag;
-typedef struct Lockstats Lockstats;
+typedef struct Lockstats	Lockstats;
+typedef struct LockEntry	LockEntry;
 typedef struct Mhead	Mhead;
 typedef struct Mnt	Mnt;
-typedef struct Mntcache Mntcache;
+typedef struct Mntcache	Mntcache;
 typedef struct Mntrpc	Mntrpc;
 typedef struct Mntwalk	Mntwalk;
 typedef struct Mount	Mount;
@@ -26,7 +28,7 @@ typedef struct Page	Page;
 typedef struct Pallocmem	Pallocmem;
 typedef struct Path	Path;
 typedef struct Perf	Perf;
-typedef struct Pgalloc Pgalloc;
+typedef struct Pgalloc	Pgalloc;
 typedef struct Pgrp	Pgrp;
 typedef struct Pgsza	Pgsza;
 typedef struct Physseg	Physseg;
@@ -35,7 +37,7 @@ typedef struct Proc	Proc;
 typedef struct Procalloc	Procalloc;
 typedef struct Pte	Pte;
 typedef struct QLock	QLock;
-typedef struct QLockstats QLockstats;
+typedef struct QLockstats	QLockstats;
 typedef struct Queue	Queue;
 typedef struct Ref	Ref;
 typedef struct Rendez	Rendez;
@@ -59,6 +61,7 @@ typedef int    Devgen(Chan*, char*, Dirtab*, int, int, Dir*);
 
 #pragma incomplete DevConf
 #pragma incomplete Edf
+#pragma incomplete Kbscan
 #pragma incomplete Mntcache
 #pragma incomplete Mntrpc
 #pragma incomplete Queue
@@ -68,7 +71,6 @@ typedef int    Devgen(Chan*, char*, Dirtab*, int, int, Dir*);
 
 struct Ref
 {
-	Lock;
 	int	ref;
 };
 
@@ -100,6 +102,22 @@ struct Waitstats
 	int	nstats;
 	int	nsalloc;
 	Waitstat	*stat;
+};
+
+struct LockEntry
+{
+	LockEntry*	next;
+	uint	locked;
+	Lock*	used;
+	int	isilock;
+	union {					/* GAK */
+		Mpl	pl;
+		Mreg	sr;
+	};
+	/* for debugging */
+	uintptr	pc;
+	Proc*	p;
+	Mach*	m;
 };
 
 struct Lockstats
@@ -195,7 +213,8 @@ struct Block
 
 struct Chan
 {
-	Ref;				/* the Lock in this Ref is also Chan's lock */
+	Lock;
+	Ref;
 	Chan*	next;			/* allocation */
 	Chan*	link;
 	vlong	offset;			/* in fd */
@@ -364,6 +383,7 @@ struct Page
 
 struct Image
 {
+	Lock;
 	Ref;
 	Chan	*c;			/* channel to text file */
 	Qid 	qid;			/* Qid for page cache coherence */
@@ -461,6 +481,7 @@ struct Sems
 
 struct Segment
 {
+	Lock;
 	Ref;
 	QLock	lk;
 	ushort	steal;		/* Page stealer lock */
@@ -509,7 +530,8 @@ struct Pgrp
 
 struct Rgrp
 {
-	Ref;				/* the Ref's lock is also the Rgrp's lock */
+	Lock;
+	Ref;
 	Proc	*rendhash[RENDHASH];	/* Rendezvous tag hash */
 };
 
@@ -535,6 +557,7 @@ struct Evalue
 
 struct Fgrp
 {
+	Lock;
 	Ref;
 	Chan	**fd;
 	int	nfd;			/* number allocated */
@@ -680,10 +703,10 @@ struct Sched
 	Lock;			/* runq */
 	int	nrdy;
 	uint	delayedscheds;	/* statistics */
-	int	skipscheds;
-	int	preempts;
-	int	schedgain;
-	uint	balancetime;
+	uint	skipscheds;
+	uint	preempts;
+	uint	loop;
+	ulong	balancetime;
 	Schedq	runq[Nrq];
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
@@ -812,7 +835,7 @@ struct Proc
 	int	fixedpri;	/* priority level does not change */
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
-	ulong	readytime;	/* time process came ready */
+	uvlong	readytime;	/* time process came ready, in fastticks*/
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it
@@ -992,6 +1015,15 @@ struct Uart
 };
 
 /*
+ * console flags &c
+ */
+enum {
+	Csync		= 1<<0,	/* use in synchronous mode (e.g. panic) */
+	Ciprint		= 1<<1,	/* call this fn from iprint */
+	Cntorn		= 1<<2,	/* change \n to \r\n */
+};
+
+/*
  *  performance timers, all units in perfticks
  */
 struct Perf
@@ -1032,7 +1064,6 @@ enum
 	DEVDOTDOT	= -1,
 };
 
-extern	Conf	conf;
 extern	char*	conffile;
 extern	Uart*	consuart;
 extern	int	cpuserver;
@@ -1043,13 +1074,13 @@ extern	int	kbdbuttons;
 extern	Ref	noteidalloc;
 extern	int	nphysseg;
 extern	int	nsyscall;
+extern	int	panicking;
 extern	Pgalloc	pga;
 extern	Physseg	physseg[];
 extern	Procalloc	procalloc;
 extern	uint	qiomaxatomic;
 extern	Sched	run[];
 extern	char*	statename[];
-extern	char*	sysname;
 extern	Lockstats lockstats;
 extern	QLockstats qlockstats;
 extern	Waitstats waitstats;

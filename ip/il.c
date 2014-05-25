@@ -419,7 +419,7 @@ ilkick(void *x, Block *bp)
 static void
 ilcreate(Conv *c)
 {
-	c->rq = qopen(Maxrq, 0, 0, c);
+	c->rq = qopen(8*Maxrq, 0, 0, c);
 	c->wq = qbypass(ilkick, c);
 }
 

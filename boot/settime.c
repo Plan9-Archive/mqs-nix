@@ -4,7 +4,7 @@
 #include <fcall.h>
 #include "../boot/boot.h"
 
-static long lusertime(char*);
+static long lusertime(char*, int);
 
 char *timeserver = "#s/boot";
 
@@ -12,7 +12,7 @@ void
 settime(int islocal, int afd, char *rp)
 {
 	int n, f;
-	Dir dir[2];
+	Dir *dir;
 	char timebuf[64];
 	static int timeset;
 
@@ -33,7 +33,7 @@ settime(int islocal, int afd, char *rp)
 		}else do{
 			strcpy(timebuf, "yymmddhhmm[ss]");
 			outin("\ndate/time ", timebuf, sizeof(timebuf));
-		}while((timeset=lusertime(timebuf)) <= 0);
+		}while((timeset=lusertime(timebuf, sizeof timebuf)) <= 0);
 	}
 	if(timeset == 0){
 		/*
@@ -48,10 +48,10 @@ settime(int islocal, int afd, char *rp)
 			return;
 		}
 		close(f);
-		if(stat("/tmp", statbuf, sizeof statbuf) < 0)
+		if((dir = dirstat("/tmp")) == nil)
 			fatal("stat");
-		convM2D(statbuf, sizeof statbuf, &dir[0], (char*)&dir[1]);
-		sprint(timebuf, "%ld", dir[0].atime);
+		snprint(timebuf, sizeof timebuf, "%ld", dir->atime);
+		free(dir);
 		unmount(0, "/tmp");
 	}
 
@@ -105,7 +105,7 @@ yrsize(int y)
  *  compute seconds since Jan 1 1970
  */
 static long
-lusertime(char *argbuf)
+lusertime(char *argbuf, int bufsz)
 {
 	char *buf;
 	ulong secs;
@@ -145,6 +145,6 @@ lusertime(char *argbuf)
 	if(*buf)
 		secs += g2(&buf);
 
-	sprint(argbuf, "%ld", secs);
+	snprint(argbuf, bufsz, "%ld", secs);
 	return secs;
 }

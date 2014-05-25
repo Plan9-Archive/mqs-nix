@@ -14,9 +14,6 @@ struct Timers
 
 static Timers timers[MACHMAX];
 
-ulong intrcount[MACHMAX];
-ulong fcallcount[MACHMAX];
-
 static vlong
 tadd(Timers *tt, Timer *nt)
 {
@@ -155,7 +152,7 @@ hzclock(Ureg *ur)
 		m->proc->pc = pc;
 
 	if(m->mmuflush){
-		if(up)
+		if(m->proc != nil)
 			mmuflush();
 		m->mmuflush = 0;
 	}
@@ -169,27 +166,23 @@ hzclock(Ureg *ur)
 	if(m->online == 0)
 		return;
 
-	if(active.exiting) {
-		iprint("someone's exiting\n");
+	if(active.exiting)
 		exit(0);
-	}
 
 	if(m->machno == 0)
 		checkalarms();
-
-	if(up && up->state == Running)
+	if(m->proc != nil && m->proc->state == Running)
 		hzsched();	/* in proc.c */
 }
 
 void
-timerintr(Ureg *u, vlong)
+timerintr(Ureg *u, void*)
 {
 	Timer *t;
 	Timers *tt;
 	vlong when, now;
 	int callhzclock;
 
-	intrcount[m->machno]++;
 	callhzclock = 0;
 	tt = &timers[m->machno];
 	now = fastticks(nil);
@@ -204,25 +197,23 @@ timerintr(Ureg *u, vlong)
 		when = t->twhen;
 		if(when > now){
 			timerset(when);
-			iunlock(tt);
-			if(callhzclock)
-				hzclock(u);
-			return;
+			break;
 		}
 		tt->head = t->tnext;
 		assert(t->tt == tt);
 		t->tt = nil;
-		fcallcount[m->machno]++;
 		iunlock(tt);
 		if(t->tf)
 			(*t->tf)(u, t);
 		else
-			callhzclock++;
+			callhzclock = 1;
 		ilock(tt);
 		if(t->tmode == Tperiodic)
 			tadd(tt, t);
 	}
 	iunlock(tt);
+	if(callhzclock)
+		hzclock(u);
 }
 
 void

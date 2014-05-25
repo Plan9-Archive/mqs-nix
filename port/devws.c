@@ -5,6 +5,91 @@
 #include	"fns.h"
 #include	"../port/error.h"
 
+Lockstats lockstats;
+Waitstats waitstats;
+Lock waitstatslk;
+
+static void
+newwaitstats(void)
+{
+	lock(&waitstatslk);
+	if(waitstats.nsalloc == 0){
+		waitstats.stat = malloc(NWstats * sizeof *waitstats.stat);
+		if(waitstats.stat != nil)
+			waitstats.nsalloc = NWstats;
+	}
+	unlock(&waitstatslk);
+}
+
+void
+startwaitstats(int on)
+{
+	newwaitstats();
+	waitstats.on = on;
+	print("lockstats %s\n", on? "on": "off");
+}
+
+void
+clearwaitstats(void)
+{
+	waitstats.nstats = 0;
+}
+
+void
+addwaitstat(uintptr pc, uvlong t0, int type)
+{
+	uint i, nstats;
+	uvlong w;
+	Waitstat *s;
+
+	if(waitstats.on == 0)
+		return;
+
+	cycles(&w);
+	w -= t0;
+
+	/* hope to slide by with no lock */
+	coherence();
+	nstats = waitstats.nstats;
+	for(i = 0; i < nstats; i++)
+		if((s = waitstats.stat + i)->pc == pc){
+			ainc(&s->count);
+			if(w > s->maxwait)
+				s->maxwait = w;		/* race but ok */
+			s->cumwait += w;		/* race but ok */
+			return;
+		}
+
+	if(!canlock(&waitstatslk))
+		return;
+
+	/* newly created stat? */
+	for(i = nstats; i < waitstats.nstats; i++)
+		if((s = waitstats.stat + i)->pc == pc){
+			ainc(&s->count);
+			if(w > s->maxwait)
+				s->maxwait = w;		/* race but ok */
+			s->cumwait += w;
+			unlock(&waitstatslk);
+			return;
+		}
+
+	if(waitstats.nstats == waitstats.nsalloc){
+		unlock(&waitstatslk);
+		return;
+	}
+
+	s = waitstats.stat + waitstats.nstats;
+	s->count = 1;
+	s->type = type;
+	s->maxwait = w;
+	s->cumwait = w;
+	s->pc = pc;
+	waitstats.nstats++;
+
+	unlock(&waitstatslk);
+}
+
 
 /*
  * reported times can be translated to a more readable format by

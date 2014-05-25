@@ -10,10 +10,6 @@
 enum
 {
 	Nconsdevs	= 64,		/* max number of consoles */
-
-	/* Consdev flags */
-	Ciprint		= 2,		/* call this fn from iprint */
-	Cntorn		= 4,		/* change \n to \r\n */
 };
 
 typedef struct Consdev Consdev;
@@ -34,13 +30,14 @@ static void kprintputs(char*, int);
 
 static	Lock	consdevslock;
 static	int	nconsdevs = 3;
-static	Consdev	consdevs[Nconsdevs] =			/* keep this order */
+static	Consdev	consdevs[Nconsdevs] =
 {
-	{nil, nil,	kmesgputs,	0},			/* kmesg */
-	{nil, nil,	kprintputs,	Ciprint},		/* kprint */
-	{nil, nil,	uartputs,	Ciprint|Cntorn},	/* serial */
+	{nil, nil,	kmesgputs,	Ciprint, },		/* kmesg */
+	{nil, nil,	kprintputs,	Csync|Ciprint, },		/* kprint */
+	{nil, nil,	uartputs,		Csync|Ciprint|Cntorn, },	/* serial (botch! must be 2d) */
 };
 
+static	int	syncprint;
 static	int	nkbdqs;
 static	int	nkbdprocs;
 static	Queue*	kbdqs[Nconsdevs];
@@ -48,7 +45,7 @@ static	int	kbdprocs[Nconsdevs];
 static	Queue*	kbdq;		/* unprocessed console input */
 static	Queue*	lineq;		/* processed console input */
 static	Queue*	kprintoq;	/* console output, for /dev/kprint */
-static	ulong	kprintinuse;	/* test and set whether /dev/kprint is open */
+static	int	kprintinuse;	/* test and set whether /dev/kprint is open */
 
 int	panicking;
 
@@ -79,10 +76,9 @@ static struct
 	.ie	= kbd.istage + sizeof(kbd.istage),
 };
 
-char	*sysname;
-vlong	fasthz;
+static	char	*sysname;
+static	vlong	fasthz;
 
-static void	seedrand(void);
 static int	readtime(ulong, char*, int);
 static int	readbintime(char*, int);
 static int	writetime(char*, int);
@@ -116,12 +112,11 @@ addconsdev(Queue *q, void (*fn)(char*,int), int i, int flags)
 	Consdev *c;
 
 	ilock(&consdevslock);
-	if(i < 0)
-		i = nconsdevs;
-	else
-		flags |= consdevs[i].flags;
-	if(nconsdevs == Nconsdevs)
+	if(i < 0){
+		if(nconsdevs == Nconsdevs)
 		panic("Nconsdevs too small");
+		i = nconsdevs;
+	}
 	c = &consdevs[i];
 	c->flags = flags;
 	c->q = q;
@@ -130,13 +125,6 @@ addconsdev(Queue *q, void (*fn)(char*,int), int i, int flags)
 		nconsdevs++;
 	iunlock(&consdevslock);
 	return i;
-}
-
-void
-delconsdevs(void)
-{
-	nconsdevs = 2;	/* throw away serial consoles and kprint */
-	consdevs[1].q = nil;
 }
 
 static void
@@ -223,15 +211,21 @@ consactive(void)
 	return 0;
 }
 
+/* must be safe to call from any context */
 void
 prflush(void)
 {
-	ulong now;
+	uvlong now;
 
-	now = m->ticks;
-	while(consactive())
-		if(m->ticks - now >= HZ)
+	now = µs();
+	while(consactive()){
+		if(µs() - now >= 1000000)
 			break;
+		if(up != nil && islo())
+			tsleep(&up->sleep, return0, nil, 1);
+		else
+			delay(1);
+	}
 }
 
 /*
@@ -279,22 +273,31 @@ consdevputs(Consdev *c, char *s, int n, int usewrite)
 	Chan *cc;
 	Queue *q;
 
+	if(syncprint){
+		usewrite = 0;
+		if((c->flags & Csync) == 0)
+			return;
+	}
+
+	if(!islo())
+		usewrite = 0;
+	if(usewrite == 0 && (c->flags & Ciprint) == 0)
+		return;
+
 	if((cc = c->c) != nil && usewrite)
 		cc->dev->write(cc, s, n, 0);
-	else if((q = c->q) != nil && !qisclosed(q))
+	else if(!syncprint && (q = c->q) != nil && !qisclosed(q)){
 		if(usewrite)
 			qwrite(q, s, n);
 		else
 			qiwrite(q, s, n);
-	else if(c->fn != nil)
+	}else
 		c->fn(s, n);
 }
 
 /*
- *   Print a string on the console.  Convert \n to \r\n for serial
- *   line consoles.  Locking of the queues is left up to the screen
- *   or uart code.  Multi-line messages to serial consoles may get
- *   interspersed with other messages.
+ * Print a string on the consoles.  Convert \n to \r\n if necessary.
+ * Multi-line messages may be interspersed.
  */
 static void
 putstrn0(char *str, int n, int usewrite)
@@ -302,9 +305,6 @@ putstrn0(char *str, int n, int usewrite)
 	Consdev *c;
 	char *s, *t;
 	int i, len, m;
-
-	if(!islo())
-		usewrite = 0;
 
 	for(i = 0; i < nconsdevs; i++){
 		c = &consdevs[i];
@@ -365,7 +365,7 @@ iprintcanlock(Lock *l)
 	for(i=0; i<1000; i++){
 		if(canlock(l))
 			return 1;
-		if(l->m == MACHP(m->machno))
+		if(ownlock(l))
 			return 0;
 		microdelay(100);
 	}
@@ -376,7 +376,7 @@ int
 iprint(char *fmt, ...)
 {
 	Mpl pl;
-	int i, n, locked;
+	int n, locked;
 	va_list arg;
 	char buf[PRINTSIZE];
 
@@ -385,13 +385,7 @@ iprint(char *fmt, ...)
 	n = vseprint(buf, buf+sizeof(buf), fmt, arg) - buf;
 	va_end(arg);
 	locked = iprintcanlock(&iprintlock);
-	for(i = 0; i < nconsdevs; i++)
-		if((consdevs[i].flags&Ciprint) != 0){
-			if(consdevs[i].q != nil)
-				qiwrite(consdevs[i].q, buf, n);
-			else
-				consdevs[i].fn(buf, n);
-		}
+	putstrn0(buf, n, 0);
 	if(locked)
 		unlock(&iprintlock);
 	splx(pl);
@@ -399,35 +393,38 @@ iprint(char *fmt, ...)
 	return n;
 }
 
+void
+synccons(void)
+{
+	syncprint = 1;
+/*	prflush();	*/
+}
+
 #pragma profile 0
 void
 panic(char *fmt, ...)
 {
-	int n;
-	Mpl pl;
+	char *p, buf[PRINTSIZE];
 	va_list arg;
-	char buf[PRINTSIZE];
+	static pmno = -1;
 
-	consdevs[1].q = nil;	/* don't try to write to /dev/kprint */
+	if(ainc(&panicking)>1){
+		if(m->machno == pmno)
+			archreset();
+		exit(1);
+	}
+	pmno = m->machno;
+	synccons();
 
-	if(panicking)
-		for(;;);
-	panicking = 1;
-
-	pl = splhi();
-	seprint(buf, buf+sizeof buf, "panic: cpu%d: ", m->machno);
+	splhi();	/* never to release */
+	p = seprint(buf, buf+sizeof buf, "panic: cpu%d: ", m->machno);
 	va_start(arg, fmt);
-	n = vseprint(buf+strlen(buf), buf+sizeof(buf), fmt, arg) - buf;
+	vseprint(p, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
 	iprint("%s\n", buf);
-	if(consdebug)
-		(*consdebug)();
-	splx(pl);
-	prflush();
-	buf[n] = '\n';
-	putstrn(buf, n+1);
+	if(consdebug != nil)
+		consdebug();
 	dumpstack();
-	delay(1000);	/* give time to consoles */
 
 	exit(1);
 }
@@ -486,9 +483,9 @@ pprint(char *fmt, ...)
 static void
 echo(char *buf, int n)
 {
+	char *e, *p;
 	Mpl pl;
 	static int ctrlt, pid;
-	char *e, *p;
 
 	if(n == 0)
 		return;
@@ -552,6 +549,9 @@ echo(char *buf, int n)
 			return;
 		case 'k':
 			killbig("^t ^t k");
+			return;
+		case 'i':
+			interruptsummary();
 			return;
 		case 'r':
 			exit(0);
@@ -775,7 +775,7 @@ consopen(Chan *c, int omode)
 		break;
 
 	case Qkprint:
-		if(TAS(&kprintinuse) != 0){
+		if(tas(&kprintinuse) != 0){
 			c->flag &= ~COPEN;
 			error(Einuse);
 		}
@@ -822,11 +822,10 @@ consread(Chan *c, void *buf, long n, vlong off)
 {
 	ulong l;
 	Mach *mp;
-	char *b, *bp, ch, *s, *e, tmp[512];
-	int i, k, id, send;
+	char *b, *bp, ch, *s, *p, *e, tmp[512];
+	int i, k, id, send, r;
 	long offset;
-	extern int schedsteals, scheddonates;
-
+	extern int schedsteals;
 
 	if(n <= 0)
 		return n;
@@ -863,6 +862,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 					kbd.x = i;
 					break;
 				case 0x15:	/* ^U */
+					print("\b^U\n");
 					kbd.x = 0;
 					break;
 				case '\n':
@@ -990,25 +990,26 @@ consread(Chan *c, void *buf, long n, vlong off)
 			nexterror();
 		}
 		n = readstr(offset, buf, n, b);
-		free(b);
 		poperror();
+		free(b);
 		return n;
 
 	case Qswap:
-		tmp[0] = 0;
-		s = seprintpagestats(tmp, tmp + sizeof tmp);
-		s = seprintphysstats(s, tmp + sizeof tmp);
-		b = buf;
-		l = s - tmp;
-		i = readstr(offset, b, l, tmp);
-		b += i;
-		n -= i;
-		if(offset > l)
-			offset -= l;
-		else
-			offset = 0;
-
-		return i + mallocreadsummary(c, b, n, offset);
+		s = b = smalloc(READSTR);
+		e = b + READSTR;
+		s = seprintpagestats(s, e);
+		s = seprintphysstats(s, e);
+		s = allocbstats(s, e);
+		s = mallocstats(s, e);
+		USED(s);
+		if(waserror()){
+			free(b);
+			nexterror();
+		}
+		n = readstr(offset, buf, n, b);
+		poperror();
+		free(b);
+		return n;
 
 	case Qsysname:
 		if(sysname == nil)
@@ -1030,17 +1031,27 @@ consread(Chan *c, void *buf, long n, vlong off)
 		return n;
 
 	case Qdebug:
-		e = tmp + sizeof tmp;
-		s = seprint(tmp, e, "steal %d\n", schedsteals);
-		s = seprint(s, e, "donate %d\n", scheddonates);
-		s = seprint(s, e, "locks %llud\n", lockstats.locks);
-		s = seprint(s, e, "glare %llud\n", lockstats.glare);
-		s = seprint(s, e, "inglare %llud\n", lockstats.inglare);
-		s = seprint(s, e, "qlock %llud\n", qlockstats.qlock);
-		s = seprint(s, e, "qlockq %llud\n", qlockstats.qlockq);
-		qiostats(s, e);
-		return readstr(offset, buf, n, tmp);
-		break;
+		s = malloc(READSTR);
+		if(s == nil)
+			error(Enomem);
+		if(waserror()){
+			free(s);
+			nexterror();
+		}
+		p = s;	
+		e = s +READSTR;
+		p = seprint(p, e, "steal %d\n", schedsteals);
+		p = seprint(p, e, "locks %llud\n", lockstats.locks);
+		p = seprint(p, e, "glare %llud\n", lockstats.glare);
+		p = seprint(p, e, "inglare %llud\n", lockstats.inglare);
+		p = seprint(p, e, "qlock %llud\n", qlockstats.qlock);
+		p = seprint(p, e, "qlockq %llud\n", qlockstats.qlockq);
+		p = schedstats(p, e);
+		qiostats(p, e);
+		r = readstr(offset, buf, n, s);
+		poperror();
+		free(s);
+		return r;
 	default:
 		print("consread %#llux\n", c->qid.path);
 		error(Egreg);
@@ -1059,7 +1070,7 @@ conswrite(Chan *c, void *va, long n, vlong off)
 	ulong offset;
 	Cmdbuf *cb;
 	Cmdtab *ct;
-	extern int schedsteals, scheddonates;
+	extern int schedsteals;
 	a = va;
 	offset = off;
 
@@ -1155,7 +1166,6 @@ conswrite(Chan *c, void *va, long n, vlong off)
 	case Qsysstat:
 		for(i = 0; i < MACHMAX; i++)
 			if((mp = sys->machptr[i]) != nil && mp->online != 0){
-				mp = MACHP(i);
 				mp->cs = 0;
 				mp->intr = 0;
 				mp->syscall = 0;
@@ -1166,18 +1176,7 @@ conswrite(Chan *c, void *va, long n, vlong off)
 		break;
 
 	case Qswap:
-		if(n >= sizeof buf)
-			error(Egreg);
-		memmove(buf, va, n);	/* so we can NUL-terminate */
-		buf[n] = 0;
-		if(!iseve())
-			error(Eperm);
-		if(buf[0]<'0' || '9'<buf[0])
-			error(Ebadarg);
-		if(strncmp(buf, "start", 5) == 0){
-			print("request to start pager ignored\n");
-			break;
-		}
+		error("swap not supported");
 		break;
 
 	case Qsysname:
@@ -1203,10 +1202,6 @@ conswrite(Chan *c, void *va, long n, vlong off)
 			schedsteals = 1;
 		else if(strcmp(buf, "nosteal") == 0)
 			schedsteals = 0;
-		else if(strcmp(buf, "donate") == 0)
-			scheddonates = 1;
-		else if(strcmp(buf, "nodonate") == 0)
-			scheddonates = 0;
 		else
 			error(Ebadctl);
 		break;
