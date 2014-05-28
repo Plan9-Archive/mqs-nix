@@ -506,10 +506,16 @@ ready(Proc *p)
 	schedready(procsched(p), p);
 }
 
+/*
+ * choose least loaded runqueue for newly forked process
+ */
 void
 forkready(Proc *p)
 {
 	if (p->wired != nil) {
+		/* procsched will return p->mp, which was set to 
+		 * p->wired upon proc creation 
+		 */
 		 schedready(procsched(p), p);
 	} else{
 		Mach *laziest;
@@ -1453,6 +1459,13 @@ scheddump(void)
 		if (mp == nil || mp->online == 0 || &mp->sch == nil)
 			continue;
 		sch = &mp->sch;
+		print("sch for mach %d: nrdy %d: nrun: %d\n", mp->machno, 
+				sch->nrdy, sch->nrun);
+		print("\tnmach %d: delayedscheds %d:\tskipscheds %d\n", sch->nmach, 
+				sch->delayedscheds, sch->skipscheds);
+		print("\tpreempts %d:\tloop %d\n: balancetime %ld\n", sch->preempts, 
+				sch->loop, sch->balancetime);
+
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--) {
 			if(rq->head == nil)
 			    continue;
@@ -1461,7 +1474,6 @@ scheddump(void)
 				iprint(" %d(%lludµs)", p->pid, fastticks2us(fastticks(nil) - p->readytime));
 			iprint("\n");
 		}
-		print("sch%ld: nrdy %d\n", sch, sch->nrdy);
 	}
 }
 
