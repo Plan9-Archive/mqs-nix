@@ -20,6 +20,7 @@ enum
 	 * 1 uses just one, which is the behavior of Plan 9.
 	 */
 	Nsched		= 4,
+	LoadFreq    = HZ*3, /* How often to calculate global load */
 };
 
 Ref	noteidalloc;
@@ -46,6 +47,8 @@ static void rebalance(void);
 static Mach *laziestmach(void);
 
 int schedsteals = 1;
+ulong lastloadavg;
+int globalload;
 
 char *statename[Nprocstate] =
 {	/* BUG: generate automatically */
@@ -372,7 +375,7 @@ reprioritize(Proc *p)
 {
 	int fairshare, n, load, ratio;
 
-	load = sys->machptr[0]->load;
+	load = globalload;
 	if(load == 0)
 		return p->basepri;
 
@@ -1680,6 +1683,9 @@ accounttime(void)
 	Sched *sch;
 	Proc *p;
 	uvlong n, per;
+	ulong now;
+	int i, globalnrdy;
+	Mach *mach;
 
 	sch = &m->sch;
 	p = m->proc;
@@ -1715,6 +1721,24 @@ accounttime(void)
 	sch->nrun = 0;
 	n = (sch->nrdy+n)*1000;
 	m->load = (m->load*(HZ-1)+n)/HZ;
+
+	/* Global load calculation */
+	if (m->machno != 0)
+		return;
+
+	now = perfticks();
+	if(now >= (lastloadavg+LoadFreq)) {
+		lastloadavg = now;
+		for(i = 0; i < sys->nmach; i++) {
+			mach = sys->machptr[i];
+			globalnrdy += mach->sch->nrdy;
+			globalnrun += mach->sch->nrun;
+		}
+		n = globalnrun;
+		globalnrun = 0;
+		n = (globalnrdy+n)*1000;
+		globalload = (globalload*(HZ-1)+n)/HZ;
+	}
 }
 
 Mach* 
