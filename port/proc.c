@@ -48,7 +48,6 @@ static Mach *laziestmach(void);
 
 int schedsteals = 1;
 ulong lastloadavg;
-int globalload;
 
 char *statename[Nprocstate] =
 {	/* BUG: generate automatically */
@@ -375,7 +374,7 @@ reprioritize(Proc *p)
 {
 	int fairshare, n, load, ratio;
 
-	load = globalload;
+	load = sys->load;
 	if(load == 0)
 		return p->basepri;
 
@@ -1427,7 +1426,7 @@ schedstats(char *s, char *e)
 {
 	int n;
 	Sched *sch;
-
+/*
 	for(n = 0; n < Nsched; n++){
 		sch = run+n;
 		if(sch->nmach == 0)
@@ -1442,6 +1441,7 @@ schedstats(char *s, char *e)
 		s = seprint(s, e, "sch%d: nmach	%d\n", n, sch->nmach);
 		s = seprint(s, e, "sch%d: nrun	%d\n", n, sch->nrun);
 	}
+*/
 	return s;
 }
 
@@ -1684,7 +1684,7 @@ accounttime(void)
 	Proc *p;
 	uvlong n, per;
 	ulong now;
-	int i, globalnrdy;
+	int i, globalnrdy, globalnrun;
 	Mach *mach;
 
 	sch = &m->sch;
@@ -1731,13 +1731,13 @@ accounttime(void)
 		lastloadavg = now;
 		for(i = 0; i < sys->nmach; i++) {
 			mach = sys->machptr[i];
-			globalnrdy += mach->sch->nrdy;
-			globalnrun += mach->sch->nrun;
+			globalnrdy += mach->sch.nrdy;
+			globalnrun += mach->sch.nrun;
 		}
 		n = globalnrun;
 		globalnrun = 0;
 		n = (globalnrdy+n)*1000;
-		globalload = (globalload*(HZ-1)+n)/HZ;
+		sys->load = (sys->load*(HZ-1)+n)/HZ;
 	}
 }
 

@@ -955,6 +955,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 	case Qsysstat:
 		b = smalloc(MACHMAX*(NUMSIZE*11+2+1) + 1);	/* +1 for NUL */
 		bp = b;
+		print("global load %d\n", sys->load);
 		for(id = 0; id < MACHMAX; id++) {
 			mp = sys->machptr[id];
 			if(mp != nil && mp->online) {

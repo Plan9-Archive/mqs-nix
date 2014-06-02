@@ -270,6 +270,7 @@ struct Sys {
 
 			u64int	epoch;		/* crude time synchronisation */
 			ulong	ticks;		/* of the clock since boot time */
+			uint 		load; 
 		};
 		uchar	syspage[4*KiB];
 	};
