@@ -667,6 +667,7 @@ enum{
 	Qsysstat,
 	Qscheddump,
 	Qtime,
+	Qtorus,
 	Quser,
 	Qzero,
 	Qdebug,
@@ -701,6 +702,7 @@ static Dirtab consdir[]={
 	"sysstat",	{Qsysstat},	0,		0666,
 	"scheddump",	{Qscheddump},	0,		0444,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
+	"torus",	{Qtorus},	0,		0444,
 	"user",		{Quser},	0,		0666,
 	"zero",		{Qzero},	0,		0444,
 	"debug",	{Qdebug},	0,		0666,
@@ -933,6 +935,14 @@ consread(Chan *c, void *buf, long n, vlong off)
 
 	case Qtime:
 		return readtime(offset, buf, n);
+
+	case Qtorus:
+		int i;
+		for(i = 0; i < sys->nmach; i++) {
+			print("%d: %d, %d", sys->machptr[i]->machno, 
+					sys->machptr[i]->neighbors[0], sys->machptr[i]->neighbors[1]);
+		}
+		return 0;
 
 	case Qbintime:
 		return readbintime(buf, n);
