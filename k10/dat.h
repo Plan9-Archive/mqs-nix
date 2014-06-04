@@ -23,6 +23,7 @@ typedef struct Vctl Vctl;
 #pragma incomplete Pcidev
 
 #define MAXSYSARG	5	/* for mount(fd, afd, mpt, flag, arg) */
+#define NDIM 		2 	/* torus dimensions */
 
 /*
  *  parameters for sysproc.c
@@ -164,6 +165,8 @@ struct Mach
 	Proc*	proc;			/* current process on this processor */
 	uintptr	stack;
 
+	Mach *neighbors[NDIM];
+
 	int	apicno;
 	int	online;
 
@@ -270,6 +273,8 @@ struct Sys {
 
 			u64int	epoch;		/* crude time synchronisation */
 			ulong	ticks;		/* of the clock since boot time */
+
+			uint 	ndim; 		/* number of neighbors each Mach has */
 		};
 		uchar	syspage[4*KiB];
 	};
