@@ -937,10 +937,9 @@ consread(Chan *c, void *buf, long n, vlong off)
 		return readtime(offset, buf, n);
 
 	case Qtorus:
-		int i;
 		for(i = 0; i < sys->nmach; i++) {
-			print("%d: %d, %d", sys->machptr[i]->machno, 
-					sys->machptr[i]->neighbors[0], sys->machptr[i]->neighbors[1]);
+			print("%d: %d, %d\n", sys->machptr[i]->machno, 
+					sys->machptr[i]->neighbors[0]->machno, sys->machptr[i]->neighbors[1]->machno);
 		}
 		return 0;
 

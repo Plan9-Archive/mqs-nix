@@ -97,10 +97,14 @@ nixsquids(void)
 static void
 torusinit(void)
 {
-	int i;
+	int i,j;
+	print("\ntorusinit\n");
 	for(i = 0; i < sys->nmach; i++) {
-		sys->machptr[i]->neighbors[0] = sys->machptr[(i+1)%sys->nmach];
-		sys->machptr[i]->neighbors[1] = sys->machptr[(i+2)%sys->nmach];
+		for(j = 0; j < NDIM; j++) {
+			print("mach %d\tneighbors %d, %d\n", i, (i+1)%sys->nmach, (i+2)%sys->nmach);
+			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
+	//		sys->machptr[i]->neighbors[1] = sys->machptr[(i+2)%sys->nmach];
+		}
 	}
 }
 
@@ -192,6 +196,7 @@ main(void)
 	swapinit();
 	userinit();
 	nixsquids();
+	torusinit();
 	schedinit();
 }
 
