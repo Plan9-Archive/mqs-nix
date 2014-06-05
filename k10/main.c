@@ -97,29 +97,10 @@ nixsquids(void)
 static void
 torusinit(void)
 {
-	int i, j, k;
-	Mach *matrix[sys->nmach/2][2];
-
-	for(j = 0; j < sys->nmach; j+2) {
-		for(i = 0; i < (sys->nmach/2); i++) {
-			matrix[i][0] = sys->machptr[j];
-			matrix[i][1] = sys->machptr[j+1]
-		}
-	}
-	for(i = 0; j < sys->nmach; i++) {
-		for(j = 0; i < (sys->nmach/2); i++) {
-			for (k = 0; k < NDIM; k++) {
-				if ((k+1) >= NDIM)
-					sys->machptr[i]->neighbors[0] = matrix[j][0];
-				else
-					sys->machptr[i]->neighbors[0] = matrix[j][k+1]
-
-				if ((i+1) >= (sys->nmach/2))
-					sys->machtpr[i]->neighbors[1] = matrix[0][k]
-				else
-					sys->machtpr[i]->neighbors[1] = matrix[i+1][k]
-			}
-		}
+	int i;
+	for(i = 0; i < sys->nmach; i++) {
+		sys->machptr[i]->neighbors[0] = sys->machptr[(i+1)%sys->nmach];
+		sys->machptr[i]->neighbors[1] = sys->machptr[(i+2)%sys->nmach];
 	}
 }
 
