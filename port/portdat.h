@@ -691,6 +691,8 @@ enum
 	PriRoot		= 13,		/* base priority for root processes */
 };
 
+#define NDIM 		2 	/* # of neighbors (for load balancing */
+
 struct Schedq
 {
 	Proc*	head;

@@ -23,7 +23,6 @@ typedef struct Vctl Vctl;
 #pragma incomplete Pcidev
 
 #define MAXSYSARG	5	/* for mount(fd, afd, mpt, flag, arg) */
-#define NDIM 		2 	/* torus dimensions */
 
 /*
  *  parameters for sysproc.c

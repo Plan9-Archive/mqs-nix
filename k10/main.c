@@ -24,7 +24,6 @@ void
 squidboy(int apicno)
 {
 	sys->machptr[m->machno] = m;
-//	setmachsched(m);
 
 	m->perf.period = 1;
 	m->cpuhz = sys->machptr[0]->cpuhz;
@@ -98,13 +97,9 @@ static void
 torusinit(void)
 {
 	int i,j;
-	print("\ntorusinit\n");
 	for(i = 0; i < sys->nmach; i++) {
-		for(j = 0; j < NDIM; j++) {
-			print("mach %d\tneighbors %d, %d\n", i, (i+1)%sys->nmach, (i+2)%sys->nmach);
+		for(j = 0; j < NDIM; j++)
 			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
-	//		sys->machptr[i]->neighbors[1] = sys->machptr[(i+2)%sys->nmach];
-		}
 	}
 }
 
