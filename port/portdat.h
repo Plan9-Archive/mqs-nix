@@ -830,6 +830,7 @@ struct Proc
 	Lock	*lastlock;	/* debugging */
 	Lock	*lastilock;	/* debugging */
 
+	Migrateinfo 	migrations[5]; /* the last 5 maches that this proc has been on */
 	Mach	*wired;
 	Mach	*mp;		/* machine this process last ran on */
 	int	nlocks;		/* number of locks held by proc */
@@ -873,6 +874,14 @@ struct Proc
 	PFPU;
 	PMMU;
 	PNOTIFY;
+};
+
+/* For purely debugging purposes only. Remove in final revision */
+struct Migrateinfo
+{
+	int machno;
+	int dstload;
+	int srcload;
 };
 
 struct Procalloc
