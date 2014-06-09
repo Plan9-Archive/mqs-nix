@@ -158,6 +158,7 @@ hzclock(Ureg *ur)
 	}
 
 	accounttime();
+	loadbalance();
 	kmapinval();
 
 	if(kproftimer != nil)
@@ -173,6 +174,49 @@ hzclock(Ureg *ur)
 		checkalarms();
 	if(m->proc != nil && m->proc->state == Running)
 		hzsched();	/* in proc.c */
+}
+
+void 
+loadbalance(void)
+{
+	int now;
+	static ulong lastloadbal;
+	struct Mach *target;
+
+	now = perfticks();
+	if((now >= (lastloadbal + BALANCE_FREQ)) && (target = imbalance() != nil)) {
+		lastloadbal = now;
+//		pushproc(target)//;
+		print("Would load balance\n");
+	}
+}
+
+Mach*
+imbalance(void)
+{
+	int i;
+	int total_nrun, total_nready;	
+	struct Mach *mp;
+
+	for(i = 0; i < NDIM; i++) {
+		total_nrun += m->neighbors[i].sched->nrun;
+		total_nrdy += m->neighbors[i].sched->nrdy;
+	}
+
+	if(total_nrun + total_nrdy < NDIM + 1)
+		return nil;
+	
+	for(i = 0; i < NDIM; i++) {
+		mp = m->neighbors[i];
+		/* total_nrun + total_nrdy is > NDIM+self and a neighbor is idling */
+		if(mp->load == 0)
+			return mp;
+		if(100 * m->load >= mp->load * IMBALANCE_THRES)
+			return mp;
+	}
+
+	/* No neighbor met the threshold, assume are balanced */
+	return nil;
 }
 
 void

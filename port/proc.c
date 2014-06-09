@@ -20,7 +20,7 @@ enum
 	 * 1 uses just one, which is the behavior of Plan 9.
 	 */
 	Nsched		= 4,
-	LoadFreq    = HZ*3, /* How often to calculate global load */
+	LoadCalcFreq    = HZ*3, /* How often to calculate global load */
 };
 
 Ref	noteidalloc;
@@ -1727,7 +1727,7 @@ accounttime(void)
 		return;
 
 	now = perfticks();
-	if(now >= (lastloadavg+LoadFreq)) {
+	if(now >= (lastloadavg+LoadCalcFreq)) {
 		lastloadavg = now;
 		for(i = 0; i < sys->nmach; i++) {
 			mach = sys->machptr[i];
