@@ -186,8 +186,7 @@ loadbalance(void)
 	now = perfticks();
 	if((now >= (lastloadbal + BALANCE_FREQ)) && (target = imbalance()) != nil) {
 		lastloadbal = now;
-//		pushproc(target);
-		print("Would load balance\n");
+		pushproc(target);
 	}
 }
 
@@ -197,6 +196,10 @@ imbalance(void)
 	int i;
 	int total_nrun, total_nrdy;	
 	struct Mach *mp;
+
+	/* If this mach is idle, it shouldn't be doing any pushing */
+	if(m->sch.nrun + m->nrdy == 0)
+		return nil.
 
 	total_nrun = 0;
 	total_nrdy = 0;
@@ -210,10 +213,20 @@ imbalance(void)
 	
 	for(i = 0; i < NDIM; i++) {
 		mp = m->neighbors[i];
+
 		/* total_nrun + total_nrdy is > NDIM+self and a neighbor is idling */
-		if(mp->load == 0)
-			return mp;
-		if(100 * m->load >= mp->load * IMBALANCE_THRES)
+		if(mp->load == 0 || (mp->nrdy + mp->nrun == 0))
+			return mp; 
+
+		/*  percentage difference formula is as follows:
+		 *  | Load A - Load B | / ((Load A + Load B)/2) x 100%
+		 *
+		 *  if the result of the above is >= IMBALANCE_THRES%, then
+		 *  we should load balance. The inequality above was simplified
+		 *  to the conditional below.
+		 */
+		if((200 * abs(m->load - mp->load)) >= 
+				(IMBALANCE_THRES * (m->load + mp->load)))
 			return mp;
 	}
 

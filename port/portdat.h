@@ -694,7 +694,7 @@ enum
 
 #define NDIM 		2 	/* # of neighbors (for load balancing */
 #define BALANCE_FREQ HZ
-#define IMBALANCE_THRES 125
+#define IMBALANCE_THRES 25 /* % difference */
 
 struct Schedq
 {

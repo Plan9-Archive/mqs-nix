@@ -216,6 +216,7 @@ uvlong		ns2fastticks(uvlong);
 int		okaddr(uintptr, long, int);
 int		openmode(int);
 int		ownlock(Lock*);
+void 		pushproc(Mach*);
 Block*		packblock(Block*);
 Block*		padblock(Block*, int);
 void		pagechainhead(Page*);
