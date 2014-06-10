@@ -184,9 +184,9 @@ loadbalance(void)
 	struct Mach *target;
 
 	now = perfticks();
-	if((now >= (lastloadbal + BALANCE_FREQ)) && (target = imbalance() != nil)) {
+	if((now >= (lastloadbal + BALANCE_FREQ)) && (target = imbalance()) != nil) {
 		lastloadbal = now;
-//		pushproc(target)//;
+//		pushproc(target);
 		print("Would load balance\n");
 	}
 }
@@ -195,12 +195,14 @@ Mach*
 imbalance(void)
 {
 	int i;
-	int total_nrun, total_nready;	
+	int total_nrun, total_nrdy;	
 	struct Mach *mp;
 
+	total_nrun = 0;
+	total_nrdy = 0;
 	for(i = 0; i < NDIM; i++) {
-		total_nrun += m->neighbors[i].sched->nrun;
-		total_nrdy += m->neighbors[i].sched->nrdy;
+		total_nrun += m->neighbors[i]->sch.nrun;
+		total_nrdy += m->neighbors[i]->sch.nrdy;
 	}
 
 	if(total_nrun + total_nrdy < NDIM + 1)
