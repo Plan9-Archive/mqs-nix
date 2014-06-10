@@ -17,6 +17,7 @@ typedef struct Log	Log;
 typedef struct Logflag	Logflag;
 typedef struct Lockstats	Lockstats;
 typedef struct LockEntry	LockEntry;
+typedef struct Migrateinfo Migrateinfo;
 typedef struct Mhead	Mhead;
 typedef struct Mnt	Mnt;
 typedef struct Mntcache	Mntcache;
@@ -726,6 +727,14 @@ union Ar0 {
 	void*	v;
 };
 
+/* For purely debugging purposes only. Remove in final revision */
+struct Migrateinfo
+{
+	int machno;
+	int dstload;
+	int srcload;
+};
+
 struct Proc
 {
 	Label	sched;		/* known to l.s */
@@ -874,14 +883,6 @@ struct Proc
 	PFPU;
 	PMMU;
 	PNOTIFY;
-};
-
-/* For purely debugging purposes only. Remove in final revision */
-struct Migrateinfo
-{
-	int machno;
-	int dstload;
-	int srcload;
 };
 
 struct Procalloc
