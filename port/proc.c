@@ -1,4 +1,5 @@
 #include	<u.h>
+sense when reading a single char buffer containing my id string....
 #include	"../port/lib.h"
 #include	"mem.h"
 #include	"dat.h"
@@ -253,9 +254,12 @@ anyhigher(void)
 void
 hzsched(void)
 {
-	/* once a second, rebalance will reprioritize ready procs */
-	if(m->machno == 0)
-		rebalance();
+	/* once a second, rebalance will reprioritize ready procs
+	 *
+	 * each mach must now call rebalance(), unlike the previous implementation
+	 * where only mach 0 called it.
+	 */
+	rebalance();
 
 	/* unless preempted, get to run for at least 100ms */
 	if(anyhigher()
@@ -394,6 +398,84 @@ reprioritize(Proc *p)
 		panic("reprioritize");
 //iprint("pid %d cpu %d load %d fair %d pri %d\n", p->pid, p->cpu, load, fairshare, ratio);
 	return ratio;
+}
+
+int
+doublerqlock(Sched *src, Sched *dst)
+{
+	if(canlock(src) && canlock(dst))
+		return 1;
+	return 0;
+}
+
+int
+doublerqunlock(Sched *src, Sched *dst)
+{
+	unlock(src);
+	unlock(dst);
+	return 0;
+}
+
+/* called in clock intr ctx */
+void
+pushproc(Mach *target)
+{
+	Sched *srcsch;
+	Sched *dstsch;
+	Schedq *dstrq;
+	Proc *p;
+	int pri;
+
+	srcsch = &m->sch;
+	dstsch = &target->sch; 
+
+	while(!doublerqlock(srcsch, dstsch))
+		;
+
+	/* Find a process to push */
+	for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+		if ((p = rq->head) == nil)
+			continue;
+		if(p->mp == nil || p->mp == m
+				|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+			splhi();
+			/* dequeue the first (head) process of this rq */
+			if(p->rnext == nil)
+				rq->tail = nil;
+			rq->head = p->rnext;
+			if(rq->head == nil)
+				sch->runvec &= ~(1<<(rq-sch->runq));
+			rq->n--;
+			sch->nrdy--;
+			if(p->state != Ready)
+				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+			break;
+		}
+	}
+	
+	/* We have our proc, stick it in the target runqueue 
+	 * will have to:
+	 * force the target mach to schedule() 
+	 * reprioritize it? The next hzclock will do this in rebalance()
+	 */
+	pri = reprioritize(p);
+	p->priority = pri;
+	dstrq = &dstsch->runq[pri];
+	p->readytime = fastticks(nil);
+	p->state = Ready;
+
+	/* guts of queueproc without the initial lock(sch) */
+	p->rnext = 0;
+	if(dstrq->tail)
+		dstrq->tail->rnext = p;
+	else
+		dstrq->head = p;
+	dstrq->tail = p;
+	dstrq->n++;
+	dstsch->nrdy++;
+	dstsch->runvec |= 1<<pri;
+
+	doublerqunlock(srcsch, dstsch);
 }
 
 /*
