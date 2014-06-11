@@ -1,5 +1,4 @@
 #include	<u.h>
-sense when reading a single char buffer containing my id string....
 #include	"../port/lib.h"
 #include	"mem.h"
 #include	"dat.h"
@@ -23,7 +22,9 @@ enum
 	Nsched		= 4,
 	LoadCalcFreq    = HZ*3, /* How often to calculate global load */
 };
-
+enum {
+	Migratedelay	= 500*1000,	/* 500 µs */
+};
 Ref	noteidalloc;
 
 static Ref pidalloc;
@@ -420,9 +421,11 @@ doublerqunlock(Sched *src, Sched *dst)
 void
 pushproc(Mach *target)
 {
+	print("\npushproc()\n");
+
 	Sched *srcsch;
 	Sched *dstsch;
-	Schedq *dstrq;
+	Schedq *dstrq, *rq;
 	Proc *p;
 	int pri;
 
@@ -433,7 +436,7 @@ pushproc(Mach *target)
 		;
 
 	/* Find a process to push */
-	for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
 		if ((p = rq->head) == nil)
 			continue;
 		if(p->mp == nil || p->mp == m
@@ -444,9 +447,9 @@ pushproc(Mach *target)
 				rq->tail = nil;
 			rq->head = p->rnext;
 			if(rq->head == nil)
-				sch->runvec &= ~(1<<(rq-sch->runq));
+				srcsch->runvec &= ~(1<<(rq-srcsch->runq));
 			rq->n--;
-			sch->nrdy--;
+			srcsch->nrdy--;
 			if(p->state != Ready)
 				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 			break;
@@ -662,10 +665,6 @@ another:
 		}
 	}
 }
-
-enum {
-	Migratedelay	= 500*1000,	/* 500 µs */
-};
 
 /*
  *  pick a process to run
