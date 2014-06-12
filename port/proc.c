@@ -21,8 +21,7 @@ enum
 	 */
 	Nsched		= 4,
 	LoadCalcFreq    = HZ*3, /* How often to calculate global load */
-};
-enum {
+
 	Migratedelay	= 500*1000,	/* 500 µs */
 };
 Ref	noteidalloc;
@@ -46,7 +45,7 @@ static int reprioritize(Proc*);
 static void updatecpu(Proc*);
 
 static void rebalance(void);
-static Mach *laziestmach(void);
+static Mach *findmach(void);
 
 int schedsteals = 1;
 ulong lastloadavg;
@@ -607,7 +606,7 @@ forkready(Proc *p)
 	} else{
 		Mach *laziest;
 
-		laziest = laziestmach();
+		laziest = findmach();
 		schedready(&laziest->sch, p);
 	}
 }
@@ -1823,9 +1822,9 @@ accounttime(void)
 }
 
 Mach* 
-laziestmach(void)
+findmach(void)
 {
-	int i, min_load = 1;
+	int i, min_load = 2000; /* something really high to start */
 	Mach *laziest, *mp;
 	/* perhaps just check a subset of maches instead */
 	for(i = 0; i < sys->nmach; i++){
