@@ -420,7 +420,7 @@ doublerqunlock(Sched *src, Sched *dst)
 void
 pushproc(Mach *target)
 {
-	print("\npushproc()\n");
+	print("\npushproc() from %d:%d to %d:%d\n", m->machno, m->load, target->machno, target->load);
 
 	Sched *srcsch;
 	Sched *dstsch;
@@ -1825,7 +1825,7 @@ Mach*
 findmach(void)
 {
 	int i, min_load = m->load;
-	Mach *laziest, *mp;
+	Mach *mp, *laziest = m;
 	/* perhaps just check a subset of maches instead */
 	for(i = 0; i < sys->nmach; i++){
 		if((mp = sys->machptr[i])->load < min_load)
