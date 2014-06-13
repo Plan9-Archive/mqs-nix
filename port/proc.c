@@ -1824,7 +1824,7 @@ accounttime(void)
 Mach* 
 findmach(void)
 {
-	int i, min_load = 2000; /* something really high to start */
+	int i, min_load = m->load;
 	Mach *laziest, *mp;
 	/* perhaps just check a subset of maches instead */
 	for(i = 0; i < sys->nmach; i++){

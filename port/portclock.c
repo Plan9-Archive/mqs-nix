@@ -230,6 +230,8 @@ imbalance(void)
 		if((200 * abs(m->load - mp->load)) >= 
 				(IMBALANCE_THRES * (m->load + mp->load))) {
 			balance_load_imbal++;
+			if(m->load < mp->load) /* there is a imbalance but I'm the less loaded one */
+				return nil;
 			return mp;
 		}
 	}
