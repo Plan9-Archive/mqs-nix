@@ -1110,3 +1110,6 @@ extern	struct {
 #pragma	varargck	type	"M"	uchar*
 
 #pragma	varargck	type	"P"	uintmem
+
+int balance_neighbor_idle;
+int balance_load_imbal;

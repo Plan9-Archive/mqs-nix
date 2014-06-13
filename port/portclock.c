@@ -198,7 +198,7 @@ imbalance(void)
 	struct Mach *mp;
 
 	/* If this mach is idle, it shouldn't be doing any pushing */
-	if((m->sch.nrun + m->sch.nrdy) == 0)
+	if(m->load == 0 || (m->sch.nrun + m->sch.nrdy) == 0)
 		return nil;
 
 	total_nrun = 0;
@@ -215,8 +215,10 @@ imbalance(void)
 		mp = m->neighbors[i];
 
 		/* total_nrun + total_nrdy is > NDIM+self and a neighbor is idling */
-		if(mp->load == 0 || (mp->sch.nrdy + mp->sch.nrun == 0))
+		if(mp->load == 0 || (mp->sch.nrdy + mp->sch.nrun == 0)) {
+			balance_neighbor_idle++;
 			return mp; 
+		}
 
 		/*  percentage difference formula is as follows:
 		 *  | Load A - Load B | / ((Load A + Load B)/2) x 100%
@@ -226,8 +228,10 @@ imbalance(void)
 		 *  to the conditional below.
 		 */
 		if((200 * abs(m->load - mp->load)) >= 
-				(IMBALANCE_THRES * (m->load + mp->load)))
+				(IMBALANCE_THRES * (m->load + mp->load))) {
+			balance_load_imbal++;
 			return mp;
+		}
 	}
 
 	/* No neighbor met the threshold, assume are balanced */

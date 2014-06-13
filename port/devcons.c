@@ -666,6 +666,7 @@ enum{
 	Qsysname,
 	Qsysstat,
 	Qscheddump,
+	Qloadbalancer,
 	Qtime,
 	Qtorus,
 	Quser,
@@ -701,6 +702,7 @@ static Dirtab consdir[]={
 	"sysname",	{Qsysname},	0,		0664,
 	"sysstat",	{Qsysstat},	0,		0666,
 	"scheddump",	{Qscheddump},	0,		0444,
+	"loadbalancer",	{Qloadbalancer},	0,		0444,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
 	"torus",	{Qtorus},	0,		0444,
 	"user",		{Quser},	0,		0666,
@@ -1006,6 +1008,11 @@ consread(Chan *c, void *buf, long n, vlong off)
 
 	case Qscheddump:
 		scheddump();
+		return 0;
+	
+	case Qloadbalancer:
+		print("balance_neighbor_idle: %d\n", balance_neighbor_idle);
+		print("balance_load_imbal: %d\n", balance_load_imbal);
 		return 0;
 
 	case Qswap:
