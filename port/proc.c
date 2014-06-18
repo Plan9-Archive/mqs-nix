@@ -254,6 +254,21 @@ anyhigher(void)
 void
 hzsched(void)
 {
+	for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+		if((p = rq->head) == nil)
+			continue;
+		if(sch->highest == nil) {
+			sch->highest = p;
+			break;
+		}
+		if(sch->highest != nil && p->priority > sch->highest) {
+			sch->highest = p;
+			break;
+		}
+		if(sch->highest != nil && sch->highest->rq > rq)
+			break;
+	}
+
 	/* once a second, rebalance will reprioritize ready procs
 	 *
 	 * each mach must now call rebalance(), unlike the previous implementation
@@ -490,6 +505,7 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	lock(sch);
 	p->priority = pri;
 	p->rnext = 0;
+	p->rq = rq;
 	if(rq->tail)
 		rq->tail->rnext = p;
 	else
@@ -543,6 +559,7 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 		rq->head = p->rnext;
 	if(rq->head == nil)
 		sch->runvec &= ~(1<<(rq-sch->runq));
+	p->rq = nil;
 	rq->n--;
 	sch->nrdy--;
 	if(sch->highest == p)
@@ -698,6 +715,7 @@ runproc(void)
 
 loop:
 	spllo();
+	/*
 	for(i = 0; ; i++){
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
@@ -705,10 +723,7 @@ loop:
 			if(p->mp == nil || p->mp == m
 					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
 				splhi();
-		//		while(!canlock(sch))
-		//			;
 				lock(sch);
-				/* dequeue the first (head) process of this rq */
 				if(p->rnext == nil)
 					rq->tail = nil;
 				rq->head = p->rnext;
@@ -722,7 +737,23 @@ loop:
 				goto found;
 			}
 		}
+		*/
+	if((p = sch->highest) == nil)
+		goto idle;
+	lock(sch);
+	sch->highest = nil;
+	Schedq *rq = p->rq;	
+	if(p->rnext == nil)
+		rq->tail = nil;
+	rq->head = p->rnext;
+	if(rq->head == nil)
+		sch->runvec &= ~(1<<(rq-sch->runq));
+	rq->n--;
+	sch->nrdy--;
+	unlock(sch);
+	goto found;
 
+idle:
 		/* waste time or halt the CPU */
 		if(i > 1)
 			idlehands();
