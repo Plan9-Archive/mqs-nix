@@ -716,6 +716,7 @@ struct Sched
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
 	uint	nrun;		/* to compute load */
+	Proc *highest;
 };
 
 typedef union Ar0 Ar0;
@@ -1113,3 +1114,4 @@ extern	struct {
 
 int balance_neighbor_idle;
 int balance_load_imbal;
+int loadbalancechecks;

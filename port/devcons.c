@@ -1013,6 +1013,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 	case Qloadbalancer:
 		print("balance_neighbor_idle: %d\n", balance_neighbor_idle);
 		print("balance_load_imbal: %d\n", balance_load_imbal);
+		print("load balance checks: %d\n", loadbalancechecks);
 		return 0;
 
 	case Qswap:

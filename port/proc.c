@@ -420,8 +420,6 @@ doublerqunlock(Sched *src, Sched *dst)
 void
 pushproc(Mach *target)
 {
-	print("\npushproc() from %d:%d to %d:%d\n", m->machno, m->load, target->machno, target->load);
-
 	Sched *srcsch;
 	Sched *dstsch;
 	Schedq *dstrq, *rq;
@@ -476,7 +474,7 @@ pushproc(Mach *target)
 	dstrq->n++;
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
-
+	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
 	doublerqunlock(srcsch, dstsch);
 }
 
@@ -500,6 +498,8 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	rq->n++;
 	sch->nrdy++;
 	sch->runvec |= 1<<pri;
+	if(sch->highest == nil || sch->highest->priority < p->priority)
+		sch->highest = p;
 	unlock(sch);
 }
 
@@ -511,9 +511,11 @@ Proc*
 dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 {
 	Proc *l, *p;
-
+/*
 	if(!canlock(sch))
 		return nil;
+*/
+	lock(sch);
 
 	/*
 	 *  the queue may have changed before we locked runq,
@@ -543,6 +545,8 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 		sch->runvec &= ~(1<<(rq-sch->runq));
 	rq->n--;
 	sch->nrdy--;
+	if(sch->highest == p)
+		sch->highest = p->rnext;
 	if(p->state != Ready)
 		iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 
@@ -701,8 +705,9 @@ loop:
 			if(p->mp == nil || p->mp == m
 					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
 				splhi();
-				while(!canlock(sch))
-					;
+		//		while(!canlock(sch))
+		//			;
+				lock(sch);
 				/* dequeue the first (head) process of this rq */
 				if(p->rnext == nil)
 					rq->tail = nil;
@@ -1826,11 +1831,35 @@ findmach(void)
 {
 	int i, min_load = m->load;
 	Mach *mp, *laziest = m;
+
+	if(min_load == 0)
+		goto out;
+
 	/* perhaps just check a subset of maches instead */
+	
 	for(i = 0; i < sys->nmach; i++){
+		if((mp = sys->machptr[i])->load == 0) {
+			laziest = mp;
+			goto out;
+		}
 		if((mp = sys->machptr[i])->load < min_load)
 			laziest = mp;
 	}
+	return laziest;
+	
+
+/*
+	for(i = 0; i < NDIM; i++) {
+		if((mp = m->neighbors[i])->load == 0) {
+			laziest = mp;
+			goto out;
+		}
+		if((mp = m->neighbors[i])->load < min_load)
+			laziest = mp;
+	}
+*/
+
+out:
 	return laziest;
 }
 

@@ -158,7 +158,7 @@ hzclock(Ureg *ur)
 	}
 
 	accounttime();
-	loadbalance();
+//	loadbalance();
 	kmapinval();
 
 	if(kproftimer != nil)
@@ -183,10 +183,13 @@ loadbalance(void)
 	static ulong lastloadbal;
 	struct Mach *target;
 
-	now = perfticks();
-	if((now >= (lastloadbal + BALANCE_FREQ)) && (target = imbalance()) != nil) {
-		lastloadbal = now;
-		pushproc(target);
+	now = fastticks(nil);
+	if((now >= (lastloadbal + BALANCE_FREQ))) {
+		loadbalancechecks++;
+		if((target = imbalance()) != nil) {
+			lastloadbal = now;
+			pushproc(target);	
+		}
 	}
 }
 
