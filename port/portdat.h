@@ -851,6 +851,8 @@ struct Proc
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
 	uvlong	readytime;	/* time process came ready, in fastticks*/
+	uvlong 	readytimeavg;
+	uint 	rqn; 		/* to be used for calculating readytimeavg */
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it

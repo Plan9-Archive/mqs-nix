@@ -702,11 +702,9 @@ loop:
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
 				continue;
-			if(p->mp == nil || p->mp == m
-					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+/*			if(p->mp == nil || p->mp == m
+					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) { */
 				splhi();
-		//		while(!canlock(sch))
-		//			;
 				lock(sch);
 				/* dequeue the first (head) process of this rq */
 				if(p->rnext == nil)
@@ -720,7 +718,6 @@ loop:
 					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 				unlock(sch);
 				goto found;
-			}
 		}
 
 		/* waste time or halt the CPU */
@@ -752,6 +749,9 @@ skipsched:
 found:
 	p->state = Scheding;
 	p->mp = m;
+
+	p->readytimeavg = rqn/((rqn+1)*p->readytimeavg) + (fastticks(nil) - p->readytime)/(rqn++);
+	p->readytime = 0;
 
 	if(edflock(p)){
 		edfrun(p, rq == &sch->runq[PriEdf]);	/* start deadline timer and do admin */
@@ -1236,6 +1236,7 @@ pexit(char *exitstr, int freemem)
 	Pgrp *pgrp;
 	Chan *dot;
 
+	print("readytimeavg %d, %d",up->pid, up->readytimeavg);
 	if(0 && up->nfullq > 0)
 		iprint(" %s=%d", up->text, up->nfullq);
 	free(up->syscalltrace);
