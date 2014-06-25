@@ -498,8 +498,6 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	rq->n++;
 	sch->nrdy++;
 	sch->runvec |= 1<<pri;
-	if(sch->highest == nil || sch->highest->priority < p->priority)
-		sch->highest = p;
 	unlock(sch);
 }
 
@@ -545,8 +543,6 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 		sch->runvec &= ~(1<<(rq-sch->runq));
 	rq->n--;
 	sch->nrdy--;
-	if(sch->highest == p)
-		sch->highest = p->rnext;
 	if(p->state != Ready)
 		iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 
