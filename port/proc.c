@@ -705,8 +705,6 @@ loop:
 			if(p->mp == nil || p->mp == m
 					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
 				splhi();
-		//		while(!canlock(sch))
-		//			;
 				lock(sch);
 				/* dequeue the first (head) process of this rq */
 				if(p->rnext == nil)
@@ -1835,20 +1833,6 @@ findmach(void)
 	if(min_load == 0)
 		goto out;
 
-	/* perhaps just check a subset of maches instead */
-	
-	for(i = 0; i < sys->nmach; i++){
-		if((mp = sys->machptr[i])->load == 0) {
-			laziest = mp;
-			goto out;
-		}
-		if((mp = sys->machptr[i])->load < min_load)
-			laziest = mp;
-	}
-	return laziest;
-	
-
-/*
 	for(i = 0; i < NDIM; i++) {
 		if((mp = m->neighbors[i])->load == 0) {
 			laziest = mp;
@@ -1857,7 +1841,6 @@ findmach(void)
 		if((mp = m->neighbors[i])->load < min_load)
 			laziest = mp;
 	}
-*/
 
 out:
 	return laziest;
