@@ -717,6 +717,8 @@ struct Sched
 	int	nmach;		/* # of cores with this color */
 	uint	nrun;		/* to compute load */
 	Proc *highest;
+	uvlong 	readytimeavg;
+	uint 	rqn; 		/* to be used for calculating readytimeavg */
 };
 
 typedef union Ar0 Ar0;
@@ -851,8 +853,6 @@ struct Proc
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
 	uvlong	readytime;	/* time process came ready, in fastticks*/
-	uvlong 	readytimeavg;
-	uint 	rqn; 		/* to be used for calculating readytimeavg */
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it
@@ -1117,3 +1117,4 @@ extern	struct {
 int balance_neighbor_idle;
 int balance_load_imbal;
 int loadbalancechecks;
+uvlong mountioavg;

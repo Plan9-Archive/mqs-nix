@@ -667,6 +667,8 @@ enum{
 	Qsysstat,
 	Qscheddump,
 	Qloadbalancer,
+	Qreadytimeavg,
+	Qmountioavg,
 	Qtime,
 	Qtorus,
 	Quser,
@@ -703,6 +705,8 @@ static Dirtab consdir[]={
 	"sysstat",	{Qsysstat},	0,		0666,
 	"scheddump",	{Qscheddump},	0,		0444,
 	"loadbalancer",	{Qloadbalancer},	0,		0444,
+	"readytimeavg",	{Qreadytimeavg},	0,		0444,
+	"mountioavg",	{Qmountioavg},	0,		0444,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
 	"torus",	{Qtorus},	0,		0444,
 	"user",		{Quser},	0,		0666,
@@ -1014,6 +1018,15 @@ consread(Chan *c, void *buf, long n, vlong off)
 		print("balance_neighbor_idle: %d\n", balance_neighbor_idle);
 		print("balance_load_imbal: %d\n", balance_load_imbal);
 		print("load balance checks: %d\n", loadbalancechecks);
+		return 0;
+
+	case Qreadytimeavg:
+		for(i = 0; i < sys->nmach; i++)
+			print("%d\t%d\n", sys->machptr[i]->sch.readytimeavg, sys->machptr[i]->sch.rqn);
+		return 0;
+
+	case Qmountioavg:
+		print("%ld\n", mountioavg);
 		return 0;
 
 	case Qswap:

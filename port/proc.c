@@ -716,11 +716,15 @@ loop:
 				sch->nrdy--;
 				if(p->state != Ready)
 					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+	if(sch->rqn == 0) 
+		sch->rqn = 1;
+	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 				unlock(sch);
 				goto found;
 		}
 
 		/* waste time or halt the CPU */
+
 		if(i > 1)
 			idlehands();
 		else
@@ -749,9 +753,6 @@ skipsched:
 found:
 	p->state = Scheding;
 	p->mp = m;
-
-	p->readytimeavg = rqn/((rqn+1)*p->readytimeavg) + (fastticks(nil) - p->readytime)/(rqn++);
-	p->readytime = 0;
 
 	if(edflock(p)){
 		edfrun(p, rq == &sch->runq[PriEdf]);	/* start deadline timer and do admin */
@@ -1234,9 +1235,8 @@ pexit(char *exitstr, int freemem)
 	Egrp *egrp;
 	Rgrp *rgrp;
 	Pgrp *pgrp;
-	Chan *dot;
 
-	print("readytimeavg %d, %d",up->pid, up->readytimeavg);
+	Chan *dot;
 	if(0 && up->nfullq > 0)
 		iprint(" %s=%d", up->text, up->nfullq);
 	free(up->syscalltrace);
@@ -1837,7 +1837,7 @@ findmach(void)
 		goto out;
 
 	/* perhaps just check a subset of maches instead */
-	
+	/*
 	for(i = 0; i < sys->nmach; i++){
 		if((mp = sys->machptr[i])->load == 0) {
 			laziest = mp;
@@ -1847,9 +1847,9 @@ findmach(void)
 			laziest = mp;
 	}
 	return laziest;
-	
+	*/
 
-/*
+
 	for(i = 0; i < NDIM; i++) {
 		if((mp = m->neighbors[i])->load == 0) {
 			laziest = mp;
@@ -1858,7 +1858,7 @@ findmach(void)
 		if((mp = m->neighbors[i])->load < min_load)
 			laziest = mp;
 	}
-*/
+
 
 out:
 	return laziest;

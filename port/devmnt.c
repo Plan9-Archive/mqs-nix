@@ -779,6 +779,8 @@ void
 mountio(Mnt *mnt, Mntrpc *r)
 {
 	int n;
+	uvlong totaltime;
+	static int ion = 1;
 
 	while(waserror()) {
 		if(mnt->rip == up)
@@ -828,6 +830,12 @@ mountio(Mnt *mnt, Mntrpc *r)
 		mountmux(mnt, r);
 	}
 	mntgate(mnt);
+
+	totaltime = fastticks(nil) - r->stime;
+	lock(mnt);
+	mountioavg = ((mountioavg * ion) + totaltime)/ion++;
+	unlock(mnt);
+ 
 	poperror();
 	mntflushfree(mnt, r);
 }
