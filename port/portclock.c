@@ -158,7 +158,7 @@ hzclock(Ureg *ur)
 	}
 
 	accounttime();
-//	loadbalance();
+	loadbalance();
 	kmapinval();
 
 	if(kproftimer != nil)
