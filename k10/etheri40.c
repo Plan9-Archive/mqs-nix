@@ -1847,7 +1847,6 @@ txrxinit(Ctlr *c)
 
 	t = (uchar*)c->pagetab[0] + 0 + c->tqno*128;
 	r = (uchar*)c->pagetab[0] + Hmcpgsz/2 + c->rqno*32;
-
 	txcontext(c, t);
 	rxcontext(c, r);
 	sfence();

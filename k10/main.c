@@ -18,13 +18,12 @@ static uintptr sp;		/* XXX - must go - user stack of init proc */
 static int maxmach = MACHMAX;
 
 extern	void	options(void);
-extern	void	setmachsched(Mach*);
+//extern	void	setmachsched(Mach*);
 
 void
 squidboy(int apicno)
 {
 	sys->machptr[m->machno] = m;
-	setmachsched(m);
 
 	m->perf.period = 1;
 	m->cpuhz = sys->machptr[0]->cpuhz;
@@ -92,6 +91,23 @@ nixsquids(void)
 	if(active.nbooting > 0)
 		print("cpu0: %d maches couldn't start\n", active.nbooting);
 	active.nbooting = 0;
+}
+
+static void
+torusinit(void)
+{
+	int i,j;
+	for(i = 0; i < sys->nmach; i++) {
+		for(j = 0; j < NDIM; j++)
+			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
+	}
+}
+
+void
+sysconfinit(void)
+{
+	sys->nproc = 2000;
+	sys->nimage = 200;
 }
 
 void
@@ -182,6 +198,7 @@ main(void)
 	swapinit();
 	userinit();
 	nixsquids();
+	torusinit();
 	schedinit();
 }
 

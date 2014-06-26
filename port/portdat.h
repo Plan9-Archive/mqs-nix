@@ -17,6 +17,7 @@ typedef struct Log	Log;
 typedef struct Logflag	Logflag;
 typedef struct Lockstats	Lockstats;
 typedef struct LockEntry	LockEntry;
+typedef struct Migrateinfo Migrateinfo;
 typedef struct Mhead	Mhead;
 typedef struct Mnt	Mnt;
 typedef struct Mntcache	Mntcache;
@@ -663,6 +664,10 @@ enum
 	PriRoot		= 13,		/* base priority for root processes */
 };
 
+#define NDIM 		2 	/* # of neighbors (for load balancing */
+#define BALANCE_FREQ HZ
+#define IMBALANCE_THRES 25 /* % difference */
+
 struct Schedq
 {
 	Proc*	head;
@@ -693,6 +698,14 @@ union Ar0 {
 	usize	u;
 	void*	v;
 	vlong	vl;
+};
+
+/* For purely debugging purposes only. Remove in final revision */
+struct Migrateinfo
+{
+	int machno;
+	int dstload;
+	int srcload;
 };
 
 struct Proc
@@ -799,6 +812,7 @@ struct Proc
 	Lock	*lastlock;	/* debugging */
 	Lock	*lastilock;	/* debugging */
 
+	Migrateinfo 	migrations[5]; /* the last 5 maches that this proc has been on */
 	Mach	*wired;
 	Mach	*mp;		/* machine this process last ran on */
 	int	nlocks;		/* number of locks held by proc */
@@ -1049,7 +1063,7 @@ extern	Pgalloc	pga;
 extern	Physseg	physseg[];
 extern	Procalloc	procalloc;
 extern	uint	qiomaxatomic;
-extern	Sched	run[];
+//extern	Sched	run[];
 extern	char*	statename[];
 extern	Lockstats lockstats;
 extern	QLockstats qlockstats;
@@ -1066,3 +1080,7 @@ extern	struct {
 #pragma	varargck	type	"M"	uchar*
 
 #pragma	varargck	type	"P"	uintmem
+
+int balance_neighbor_idle;
+int balance_load_imbal;
+int loadbalancechecks;

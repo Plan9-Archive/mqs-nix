@@ -665,7 +665,10 @@ enum{
 	Qswap,
 	Qsysname,
 	Qsysstat,
+	Qscheddump,
+	Qloadbalancer,
 	Qtime,
+	Qtorus,
 	Quser,
 	Qzero,
 	Qdebug,
@@ -698,7 +701,10 @@ static Dirtab consdir[]={
 	"swap",		{Qswap},	0,		0664,
 	"sysname",	{Qsysname},	0,		0664,
 	"sysstat",	{Qsysstat},	0,		0666,
+	"scheddump",	{Qscheddump},	0,		0444,
+	"loadbalancer",	{Qloadbalancer},	0,		0444,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
+	"torus",	{Qtorus},	0,		0444,
 	"user",		{Quser},	0,		0666,
 	"zero",		{Qzero},	0,		0444,
 	"debug",	{Qdebug},	0,		0666,
@@ -932,6 +938,13 @@ consread(Chan *c, void *buf, long n, vlong off)
 	case Qtime:
 		return readtime(offset, buf, n);
 
+	case Qtorus:
+		for(i = 0; i < sys->nmach; i++) {
+			print("%d: %d, %d\n", sys->machptr[i]->machno, 
+					sys->machptr[i]->neighbors[0]->machno, sys->machptr[i]->neighbors[1]->machno);
+		}
+		return 0;
+
 	case Qbintime:
 		return readbintime(buf, n);
 
@@ -953,6 +966,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 	case Qsysstat:
 		b = smalloc(MACHMAX*(NUMSIZE*11+2+1) + 1);	/* +1 for NUL */
 		bp = b;
+		print("global load %d\n", sys->load);
 		for(id = 0; id < MACHMAX; id++) {
 			mp = sys->machptr[id];
 			if(mp != nil && mp->online) {
@@ -980,8 +994,6 @@ consread(Chan *c, void *buf, long n, vlong off)
 					(mp->perf.avg_inintr*100)/mp->perf.period,
 					NUMSIZE);
 				bp += NUMSIZE;
-				readnum(0, bp, NUMSIZE, (mp->sch - run), NUMSIZE);
-				bp += NUMSIZE;
 				*bp++ = '\n';
 			}
 		}
@@ -993,6 +1005,16 @@ consread(Chan *c, void *buf, long n, vlong off)
 		poperror();
 		free(b);
 		return n;
+
+	case Qscheddump:
+		scheddump();
+		return 0;
+	
+	case Qloadbalancer:
+		print("balance_neighbor_idle: %d\n", balance_neighbor_idle);
+		print("balance_load_imbal: %d\n", balance_load_imbal);
+		print("load balance checks: %d\n", loadbalancechecks);
+		return 0;
 
 	case Qswap:
 		s = b = smalloc(READSTR);

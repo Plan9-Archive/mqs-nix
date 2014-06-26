@@ -1,5 +1,4 @@
 #include "../port/portfns.h"
-
 void	acpiinit(int);
 Dirtab*	addarchfile(char*, int, long(*)(Chan*, void*, long, vlong), long(*)(Chan*, void*, long, vlong));
 void	adrinit(void);
@@ -31,6 +30,7 @@ void	fpunotify(Ureg*);
 void	fpuprocrestore(Proc*);
 void	fpuprocsave(Proc*);
 void	fpusysprocsetup(Proc*);
+void	fpusysrfork(Ureg*);
 void	fpusysrforkchild(Proc*, Proc*);
 void	fpusysrfork(Ureg*);
 void	gdtget(void*);
@@ -78,6 +78,7 @@ void	mach0init(void);
 void	machinit(void);
 void	meminit(void);
 void	mfence(void);
+void	mmumap(uintmem, uintptr, u64int, uint);
 void	mmuflushtlb(uintmem);
 void	mmuinit(void);
 void	mmumap(uintmem, uintptr, u64int, uint);

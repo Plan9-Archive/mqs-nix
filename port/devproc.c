@@ -34,6 +34,8 @@ enum
 	Qprofile,
 	Qsyscall,
 	Qwired,
+	Qmp,
+	Qmach,
 };
 
 enum
@@ -107,7 +109,9 @@ Dirtab procdir[] =
 	"wait",		{Qwait},	0,			0400,
 	"profile",	{Qprofile},	0,			0400,
 	"syscall",	{Qsyscall},	0,			0400,	
-	"wired",		{Qwired},	0,			0444,
+	"wired",	{Qwired},	0,			0444,
+	"mp", 		{Qmp}, 		0,			0444,
+	"mach", 	{Qmach}, 	0,			0444,
 };
 
 static
@@ -492,6 +496,8 @@ procopen(Chan *c, int omode)
 	case Qkregs:
 	case Qfpregs:
 	case Qsyscall:
+	case Qmp:
+	case Qmach:
 	case Qwired:
 		nonone(p);
 		break;
@@ -856,6 +862,16 @@ procread(Chan *c, void *va, long n, vlong off)
 		if(wired != nil)
 			i = wired->machno;
 		snprint(statbuf, sizeof statbuf, "%d\n", i);
+		return readstr(offset, va, n, statbuf);
+
+	case Qmp:
+		snprint(statbuf, sizeof statbuf, "%d\n", p->mp->machno);
+		return readstr(offset, va, n, statbuf);
+
+	case Qmach:
+		if (p->mach == 0)  
+		    return 0;
+		snprint(statbuf, sizeof statbuf, "%d\n", p->mach->machno);
 		return readstr(offset, va, n, statbuf);
 
 	case Qmem:

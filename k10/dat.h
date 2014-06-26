@@ -164,6 +164,8 @@ struct Mach
 	Proc*	proc;			/* current process on this processor */
 	uintptr	stack;
 
+	Mach *neighbors[NDIM];
+
 	int	apicno;
 	int	online;
 
@@ -205,7 +207,7 @@ struct Mach
 	int	cpumhz;
 	u64int	rdtsc;
 
-	Sched*	sch;			/* scheduler used */
+	Sched	sch;			/* scheduler used */
 
 	MFPU;
 };
@@ -270,6 +272,8 @@ struct Sys {
 
 			u64int	epoch;		/* crude time synchronisation */
 			ulong	ticks;		/* of the clock since boot time */
+
+			uint 	load;  		/* global load */
 		};
 		uchar	syspage[4*KiB];
 	};

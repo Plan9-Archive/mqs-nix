@@ -72,6 +72,7 @@ sd +dev
 	sdvanir		sdscsifis sdatafis
 	sdmpt2		sdscsifis sdatafis
 	sdloop
+	sdfs
 
 misc +dev
 #	mp		mpacpi lapic ioapic msi pci sipi

@@ -19,9 +19,9 @@ enum
 	 * number of schedulers used.
 	 * 1 uses just one, which is the behavior of Plan 9.
 	 */
-	Nsched		= 16,
+	Nsched		= 4,
+	LoadCalcFreq    = HZ*3, /* How often to calculate global load */
 };
-
 Ref	noteidalloc;
 
 static	Ref	pidalloc;
@@ -31,7 +31,7 @@ static	uvlong	affdelay;
  * Many multiprocessor machines are NUMA
  * try to use a different scheduler per color
  */
-Sched run[Nsched];
+//Sched run[Nsched];
 
 struct Procalloc procalloc;
 
@@ -44,8 +44,10 @@ static int reprioritize(Proc*);
 static void updatecpu(Proc*);
 
 static void rebalance(void);
+static Mach *findmach(void);
 
 int schedsteals = 1;
+ulong lastloadavg;
 
 char *statename[Nprocstate] =
 {	/* BUG: generate automatically */
@@ -65,6 +67,7 @@ char *statename[Nprocstate] =
 	"Semdown",
 };
 
+/*
 void
 setmachsched(Mach *mp)
 {
@@ -75,8 +78,9 @@ setmachsched(Mach *mp)
 		iprint("mach%d: unknown color\n", mp->machno);
 		color = 0;
 	}
-	mp->sch = &run[color%Nsched];
+//	mp->sch = &run[color%Nsched];
 }
+*/
 
 Sched*
 procsched(Proc *p)
@@ -86,9 +90,7 @@ procsched(Proc *p)
 	pm = p->mp;
 	if(pm == nil)
 		pm = m;
-	if(pm->sch == nil)
-		setmachsched(pm);
-	return pm->sch;
+	return &pm->sch;
 }
 
 /*
@@ -104,7 +106,7 @@ schedinit(void)		/* never returns */
 		affdelay++;
 
 	m->inidle = 1;
-	ainc(&m->sch->nmach);
+	ainc(&m->sch.nmach);
 
 	setlabel(&m->sched);
 	if(up) {
@@ -175,7 +177,7 @@ sched(void)
 	Proc *p;
 	Sched *sch;
 
-	sch = m->sch;
+	sch = &m->sch;
 	if(m->ilockdepth)
 		panic("mach%d: ilockdepth %d, last lock %#p at %#p, sched called from %#p",
 			m->machno,
@@ -240,13 +242,13 @@ sched(void)
 int
 anyready(void)
 {
-	return m->sch->runvec;
+	return m->sch.runvec;
 }
 
 int
 anyhigher(void)
 {
-	return m->sch->runvec & ~((1<<(m->proc->priority+1))-1);
+	return m->sch.runvec & ~((1<<(m->proc->priority+1))-1);
 }
 
 /*
@@ -255,9 +257,12 @@ anyhigher(void)
 void
 hzsched(void)
 {
-	/* once a second, rebalance will reprioritize ready procs */
-	if(m->machno == 0)
-		rebalance();
+	/* once a second, rebalance will reprioritize ready procs
+	 *
+	 * each mach must now call rebalance(), unlike the previous implementation
+	 * where only mach 0 called it.
+	 */
+	rebalance();
 
 	/* unless preempted, get to run for at least 100ms */
 	if(anyhigher()
@@ -343,8 +348,9 @@ updatecpu(Proc *p)
 
 	if(n == 0)
 		return;
-	if(m->sch == nil)	/* may happen during boot */
+	if(&m->sch == nil)	/* may happen during boot */
 		return;
+//	D = m->sch.schedgain*HZ*Scaling;
 	D = Shortburst*Scaling;
 	if(n > D)
 		n = D;
@@ -375,7 +381,7 @@ reprioritize(Proc *p)
 {
 	int fairshare, n, load, ratio;
 
-	load = sys->machptr[0]->load;
+	load = sys->load;
 	if(load == 0)
 		return p->basepri;
 
@@ -395,6 +401,90 @@ reprioritize(Proc *p)
 		panic("reprioritize");
 //iprint("pid %d cpu %d load %d fair %d pri %d\n", p->pid, p->cpu, load, fairshare, ratio);
 	return ratio;
+}
+
+int
+doublerqlock(Sched *src, Sched *dst)
+{
+	if(canlock(src) && canlock(dst))
+		return 1;
+	return 0;
+}
+
+int
+doublerqunlock(Sched *src, Sched *dst)
+{
+	unlock(src);
+	unlock(dst);
+	return 0;
+}
+
+/* called in clock intr ctx */
+void
+pushproc(Mach *target)
+{
+	Sched *srcsch;
+	Sched *dstsch;
+	Schedq *dstrq, *rq;
+	Proc *p;
+	int pri;
+
+	srcsch = &m->sch;
+	dstsch = &target->sch; 
+
+	while(!doublerqlock(srcsch, dstsch))
+		;
+
+	/* Find a process to push */
+	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
+		if ((p = rq->head) == nil)
+			continue;
+		if(p->mp == nil || p->mp == m
+				|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+			splhi();
+			/* dequeue the first (head) process of this rq */
+			if(p->rnext == nil)
+				rq->tail = nil;
+			rq->head = p->rnext;
+			if(rq->head == nil)
+				srcsch->runvec &= ~(1<<(rq-srcsch->runq));
+			rq->n--;
+			srcsch->nrdy--;
+			if(p->state != Ready)
+				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+			break;
+		}
+	}
+	
+	if(p == nil)
+		goto out;
+	
+	/* We have our proc, stick it in the target runqueue 
+	 * will have to:
+	 * force the target mach to schedule() 
+	 * reprioritize it? The next hzclock will do this in rebalance()
+	 */
+	pri = reprioritize(p);
+	p->priority = pri;
+	dstrq = &dstsch->runq[pri];
+	p->readytime = fastticks(nil);
+	p->state = Ready;
+
+	/* guts of queueproc without the initial lock(sch) */
+	p->rnext = 0;
+	if(dstrq->tail)
+		dstrq->tail->rnext = p;
+	else
+		dstrq->head = p;
+	dstrq->tail = p;
+	dstrq->n++;
+	dstsch->nrdy++;
+	dstsch->runvec |= 1<<pri;
+//	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
+	goto out;
+
+out:
+	doublerqunlock(srcsch, dstsch);
 }
 
 /*
@@ -421,15 +511,18 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 }
 
 /*
- *  try to remove a process from a scheduling queue (called splhi)
+ *  try to remove target process tp from 
+ *  scheduling queue rq (called splhi)
  */
 Proc*
 dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 {
 	Proc *l, *p;
-
+/*
 	if(!canlock(sch))
 		return nil;
+*/
+	lock(sch);
 
 	/*
 	 *  the queue may have changed before we locked runq,
@@ -442,6 +535,9 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 		l = p;
 	}
 
+	/*
+	 *  p->mach == nil only when process state is saved
+	 */
 	if(p == nil || !procsaved(p)){
 		unlock(sch);
 		return nil;
@@ -506,6 +602,24 @@ ready(Proc *p)
 }
 
 /*
+ * choose least loaded runqueue for newly forked process
+ */
+void
+forkready(Proc *p)
+{
+	if (p->wired != nil) {
+		/* procsched will return p->mp, which was set to 
+		 * p->wired upon proc creation 
+		 */
+		 schedready(procsched(p), p);
+	} else{
+		Mach *laziest;
+
+		laziest = findmach();
+		schedready(&laziest->sch, p);
+	}
+}
+/*
  *  yield the processor and drop our priority
  */
 void
@@ -532,7 +646,7 @@ rebalance(void)
 	Schedq *rq;
 	Proc *p;
 
-	sch = m->sch;
+	sch = &m->sch;
 	t = m->ticks;
 	if(t - sch->balancetime < HZ)
 		return;
@@ -571,14 +685,14 @@ runproc(void)
 {
 	Schedq *rq;
 	Sched *sch;
-	Proc *p;
+	Proc *p, *l;
 	uvlong start, now;
 	int i, skip;
 	static Lock monitor;		/* fight over one cache line, not many */
 
 	skip = 0;
 	start = perfticks();
-	sch = m->sch;
+	sch = &m->sch;
 	/* cooperative scheduling until the clock ticks */
 	if((p=m->readied) != nil && procsaved(p) && p->state == Ready
 	&& (sch->runvec & (1<<Nrq-1 | 1<< Nrq-2)) == 0
@@ -586,26 +700,33 @@ runproc(void)
 		sch->skipscheds++;
 		skip = 1;
 		rq = &sch->runq[p->priority];
-		goto found;
+		goto skipsched;
 	}
 
 	sch->preempts++;
 
 loop:
 	spllo();
-	for(i = 0;; i++){
-		/*
-		 *  find the highest priority target process that this
-		 *  processor can run given affinity constraints.
-		 */
-		ilock(&monitor);
+	for(i = 0; ; i++){
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
-			for(p = rq->head; p != nil; p = p->rnext){
-				if(softaffinity(p)
-				|| hardaffinity(p) && fastticks(nil) - p->readytime >= affdelay){
-					iunlock(&monitor);
-					goto found;
-				}
+			if ((p = rq->head) == nil)
+				continue;
+			if(p->mp == nil || p->mp == m
+					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+				splhi();
+				lock(sch);
+				/* dequeue the first (head) process of this rq */
+				if(p->rnext == nil)
+					rq->tail = nil;
+				rq->head = p->rnext;
+				if(rq->head == nil)
+					sch->runvec &= ~(1<<(rq-sch->runq));
+				rq->n--;
+				sch->nrdy--;
+				if(p->state != Ready)
+					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+				unlock(sch);
+				goto found;
 			}
 		}
 		iunlock(&monitor);
@@ -619,7 +740,7 @@ loop:
 		start = now;
 	}
 
-found:
+skipsched:
 	splhi();
 	p = dequeueproc(sch, rq, p);
 	if(p == nil){
@@ -630,6 +751,9 @@ found:
 		sch->loop++;
 		goto loop;
 	}
+
+//stolen:
+found:
 	p->state = Scheding;
 	p->mp = m;
 
@@ -652,6 +776,7 @@ canpage(Proc *p)
 	pl = splhi();
 	sch = procsched(p);
 	lock(sch);
+	/* Only reliable way to see if we are Running */
 	if(procsaved(p)){
 		p->newtlb = 1;
 		ok = 1;
@@ -1390,7 +1515,7 @@ schedstats(char *s, char *e)
 {
 	int n;
 	Sched *sch;
-
+/*
 	for(n = 0; n < Nsched; n++){
 		sch = run+n;
 		if(sch->nmach == 0)
@@ -1405,6 +1530,7 @@ schedstats(char *s, char *e)
 		s = seprint(s, e, "sch%d: nmach	%d\n", n, sch->nmach);
 		s = seprint(s, e, "sch%d: nrun	%d\n", n, sch->nrun);
 	}
+*/
 	return s;
 }
 
@@ -1414,19 +1540,32 @@ scheddump(void)
 	Proc *p;
 	Sched *sch;
 	Schedq *rq;
+	Mach *mp;
+	int i;
 
-	for(sch = run; sch < &run[Nsched]; sch++){
-		if(sch->nmach == 0)
+	/* 
+	 * for each cpu's Sched struct, loop over their runq 
+	 */
+	for(i = 0; i < MACHMAX; i++) {
+		mp = sys->machptr[i];
+		if (mp == nil || mp->online == 0 || &mp->sch == nil)
 			continue;
-		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
+		sch = &mp->sch;
+		print("sch for mach %d: nrdy %d: nrun: %d\n", mp->machno, 
+				sch->nrdy, sch->nrun);
+		print("\tnmach %d: delayedscheds %d:\tskipscheds %d\n", sch->nmach, 
+				sch->delayedscheds, sch->skipscheds);
+		print("\tpreempts %d:\tloop %d\n: balancetime %ld\n", sch->preempts, 
+				sch->loop, sch->balancetime);
+
+		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--) {
 			if(rq->head == nil)
-				continue;
-			iprint("sch%ld rq%ld:", sch - run, rq-sch->runq);
+			    continue;
+			print("sch%ld rq%ld n%ld:", sch, rq-sch->runq, rq->n);
 			for(p = rq->head; p; p = p->rnext)
 				iprint(" %d(%lludµs)", p->pid, fastticks2us(fastticks(nil) - p->readytime));
 			iprint("\n");
 		}
-		iprint("sch%ld: nrdy %d\n", sch - run, sch->nrdy);
 	}
 }
 
@@ -1625,7 +1764,7 @@ renameuser(char *old, char *new)
 
 /*
  *  time accounting called by clock() splhi'd
- *  only cpu0 computes system load average
+ *  load is calculated per-mach
  */
 void
 accounttime(void)
@@ -1633,8 +1772,11 @@ accounttime(void)
 	Sched *sch;
 	Proc *p;
 	uvlong n, per;
+	ulong now;
+	int i, globalnrdy, globalnrun;
+	Mach *mach;
 
-	sch = m->sch;
+	sch = &m->sch;
 	p = m->proc;
 	if(p != nil){
 		sch->nrun++;
@@ -1655,10 +1797,6 @@ accounttime(void)
 	m->perf.avg_inintr = (m->perf.avg_inintr*(HZ-1)+m->perf.inintr)/HZ;
 	m->perf.inintr = 0;
 
-	/* only one processor gets to compute system load averages */
-	if(m->machno != 0)
-		return;
-
 	/*
 	 * calculate decaying load average.
 	 * if we decay by (n-1)/n then it takes
@@ -1672,12 +1810,53 @@ accounttime(void)
 	sch->nrun = 0;
 	n = (sch->nrdy+n)*1000;
 	m->load = (m->load*(HZ-1)+n)/HZ;
+
+	/* Global load calculation */
+	if (m->machno != 0)
+		return;
+
+	now = perfticks();
+	if(now >= (lastloadavg+LoadCalcFreq)) {
+		lastloadavg = now;
+		for(i = 0; i < sys->nmach; i++) {
+			mach = sys->machptr[i];
+			globalnrdy += mach->sch.nrdy;
+			globalnrun += mach->sch.nrun;
+		}
+		n = globalnrun;
+		globalnrun = 0;
+		n = (globalnrdy+n)*1000;
+		sys->load = (sys->load*(HZ-1)+n)/HZ;
+	}
 }
+
+Mach* 
+findmach(void)
+{
+	int i, min_load = m->load;
+	Mach *mp, *laziest = m;
+
+	if(min_load == 0)
+		goto out;
+
+	for(i = 0; i < NDIM; i++) {
+		if((mp = m->neighbors[i])->load == 0) {
+			laziest = mp;
+			goto out;
+		}
+		if((mp = m->neighbors[i])->load < min_load)
+			laziest = mp;
+	}
+
+out:
+	return laziest;
+}
+
 
 void
 halt(void)
 {
-	if(m->sch->nrdy != 0)
+	if(m->sch.nrdy != 0)
 		return;
 	hardhalt();
 }

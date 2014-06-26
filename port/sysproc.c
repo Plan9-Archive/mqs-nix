@@ -190,13 +190,13 @@ sysrfork(Ar0* ar0, va_list list)
 	p->basepri = up->basepri;
 	p->priority = up->basepri;
 	p->fixedpri = up->fixedpri;
-	p->mp = up->mp;
+//	p->mp = up->mp;
 
 	wm = up->wired;
 	if(wm != nil)
 		procwired(p, wm->machno);
 	p->color = up->color;
-	ready(p);
+	forkready(p);
 	sched();
 
 	ar0->i = pid;
