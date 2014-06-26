@@ -26,8 +26,8 @@
 #include "../port/ethermii.h"
 #include "../port/netif.h"
 
-#include "etherif.h"
 #include "io.h"
+#include "etherif.h"
 
 enum {
 	i82542		= (0x1000<<16)|0x8086,
@@ -433,14 +433,15 @@ enum {					/* Td status */
 enum {
 	Nrd		= 256,		/* multiple of 8 */
 	Ntd		= 64,		/* multiple of 8 */
-	Nrb		= 512,		/* private receive buffers per Ctlr */
+	Nrb		= 1024,		/* private receive buffers per Ctlr */
+	Rbalign		= 64,
 	Rbsz		= 9*1024+128,
 	Rbsize		= Bsize16384|Bsex|Lpe,
 };
 
 typedef struct Ctlr Ctlr;
 typedef struct Ctlr {
-	int	port;
+	uintmem	port;
 	Pcidev*	pcidev;
 	Ctlr*	next;
 	Ether*	edev;
@@ -509,7 +510,6 @@ typedef struct Ctlr {
 #define csr32w(c, r, v)	(*((c)->nic+((r)/4)) = (v))
 
 static Ctlr* igbectlrhead;
-static Ctlr* igbectlrtail;
 
 static Lock igberblock;		/* free receive Blocks */
 static Block* igberbpool;	/* receive Blocks for all igbe controllers */
@@ -758,7 +758,7 @@ igberballoc(void)
 static void
 igberbfree(Block* b)
 {
-	b->rp = b->wp = (uchar*)ROUNDUP((uintptr)b->base, PGSZ);
+	b->rp = b->wp = (uchar*)ROUNDUP(PTR2UINT(b->base), Rbalign);
 	b->flag &= ~(Bipck | Budpck | Btcpck | Bpktck);
 	ilock(&igberblock);
 	b->next = igberbpool;
@@ -940,14 +940,13 @@ igbetxinit(Ctlr* ctlr)
 		r &= ~WthreshMASK;
 		r |= Gran|(4<<WthreshSHIFT);
 
-		csr32w(ctlr, Tadv, 64);
+		csr32w(ctlr, Tadv, 0);
 		break;
 	}
 
 	csr32w(ctlr, Txdctl, r);
 
-	r = csr32r(ctlr, Tctl);
-	r |= Ten;
+	r = csr32r(ctlr, Tctl) | Ten;
 	csr32w(ctlr, Tctl, r);
 }
 
@@ -1085,7 +1084,7 @@ igberxinit(Ctlr* ctlr)
 	case i82546gb:
 	case i82546eb:
 	case i82547gi:
-		csr32w(ctlr, Radv, 64);
+		csr32w(ctlr, Radv, 0);
 		break;
 	}
 	csr32w(ctlr, Rxdctl, (8<<WthreshSHIFT)|(8<<HthreshSHIFT)|4);
@@ -1178,7 +1177,7 @@ igberproc(void* arg)
 		}
 		ctlr->rdh = rdh;
 
-		if(ctlr->rdfree < ctlr->nrd/2 || (ctlr->rim & Rxdmt0))
+		if(ctlr->rdfree >= 32 || (ctlr->rim & Rxdmt0))
 			igbereplenish(ctlr);
 	}
 }
@@ -1252,7 +1251,7 @@ igbeattach(Ether* edev)
 	}
 
 	for(i = 0; i < Nrb; i++){
-		bp = allocb(Rbsz+PGSZ);
+		bp = allocb(Rbsz+Rbalign);
 		bp->free = igberbfree;
 		freeb(bp);
 	}
@@ -1288,7 +1287,7 @@ igbeinterrupt(Ureg*, void* arg)
 	csr32w(ctlr, Imc, ~0);
 	im = ctlr->im;
 
-	while((icr = csr32r(ctlr, Icr) & ctlr->im) != 0){
+	if((icr = csr32r(ctlr, Icr) & ctlr->im) != 0){
 		if(icr & Lsc){
 			im &= ~Lsc;
 			ctlr->lim = icr & Lsc;
@@ -1459,8 +1458,10 @@ igbemii(Ctlr* ctlr)
 	int (*write)(Mii*, int, int, int);
 
 	r = csr32r(ctlr, Status);
-	if(r & Tbimode)
+	if(r & Tbimode){
+		print("etherigbe: %T: mii: tbimode unsupported\n", ctlr->pcidev->tbdf);
 		return -1;
+	}
 
 	ctrl = csr32r(ctlr, Ctrl);
 	ctrl |= Slu;
@@ -1477,8 +1478,10 @@ igbemii(Ctlr* ctlr)
 		 * so bail.
 		 */
 		r = csr32r(ctlr, Ctrlext);
-		if(!(r & Mdro))
+		if(!(r & Mdro)){
+			print("etherigbe: %T: Mdro driver bug\n", ctlr->pcidev->tbdf);
 			return -1;
+		}
 		csr32w(ctlr, Ctrlext, r);
 		delay(20);
 		r = csr32r(ctlr, Ctrlext);
@@ -1514,12 +1517,15 @@ igbemii(Ctlr* ctlr)
 		write = igbemiimiw;
 		break;
 	default:
+		print("igbe: mii: unknown: %.8ux\n", ctlr->id);
 		return -1;
 	}
 
-	if((ctlr->mii = miiattach(ctlr, ~0, read, write)) == nil)
+	if((ctlr->mii = miiattach(ctlr, ~0, read, write)) == nil){
+		print("igbe: %T: miiattach fail\n", ctlr->pcidev->tbdf);
 		return -1;
-	// print("oui %X phyno %d\n", ctlr->mii->curphy->oui, ctlr->mii->curphy->phyno);
+	}
+	// print("oui %x phyno %d\n", ctlr->mii->curphy->oui, ctlr->mii->curphy->phyno);
 
 	/*
 	 * 8254X-specific PHY registers not in 802.3:
@@ -1909,7 +1915,6 @@ igbereset(Ctlr* ctlr)
 		csr32w(ctlr, Txcw, txcw);
 	}
 
-
 	/*
 	 * Flow control - values from the datasheet.
 	 */
@@ -1921,8 +1926,10 @@ igbereset(Ctlr* ctlr)
 	csr32w(ctlr, Fcrtl, ctlr->fcrtl);
 	csr32w(ctlr, Fcrth, ctlr->fcrth);
 
-	if(!(csr32r(ctlr, Status) & Tbimode) && igbemii(ctlr) < 0)
+	if(!(csr32r(ctlr, Status) & Tbimode) && igbemii(ctlr) < 0){
+		print("igbe: %T mii fails\n", ctlr->pcidev->tbdf);
 		return -1;
+	}
 
 	return 0;
 }
@@ -1932,11 +1939,11 @@ igbepci(void)
 {
 	int cls;
 	Pcidev *p;
-	Ctlr *ctlr;
+	Ctlr *ctlr, **cc;
 	void *mem;
 
-	p = nil;
-	while(p = pcimatch(p, 0, 0)){
+	cc = &igbectlrhead;
+	for(p = nil; p = pcimatch(p, 0, 0); ){
 		if(p->ccrb != 0x02 || p->ccru != 0)
 			continue;
 
@@ -1962,9 +1969,9 @@ igbepci(void)
 			break;
 		}
 
-		mem = vmap(p->mem[0].bar & ~0x0F, p->mem[0].size);
+		mem = vmap(p->mem[0].bar & ~(uintmem)0xf, p->mem[0].size);
 		if(mem == nil){
-			print("igbe: can't map %#.8ux\n", p->mem[0].bar);
+			print("igbe: can't map %#P\n", p->mem[0].bar);
 			continue;
 		}
 		cls = pcicfgr8(p, PciCLS);
@@ -1974,36 +1981,35 @@ igbepci(void)
 			break;
 		case 0x00:
 		case 0xFF:
-			print("igbe: unusable CLS; using 32 bytes\n");
-			pcicfgw8(p, PciCLS, 32/4);
-			continue;
+			print("igbe: resetting CLS %d->%d bytes\n", cls*4, 32);
+			cls = 32/4;
+			pcicfgw8(p, PciCLS, cls);
+			break;
 		case 0x08:
 		case 0x10:
 			break;
 		}
 		ctlr = malloc(sizeof(Ctlr));
 		if(ctlr == nil) {
+			print("etherigbe: %T: no memory\n", p->tbdf);
 			vunmap(mem, p->mem[0].size);
 			continue;
 		}
-		ctlr->port = p->mem[0].bar & ~0x0F;
+		ctlr->port = p->mem[0].bar & ~(uintmem)0xf;
 		ctlr->pcidev = p;
 		ctlr->id = (p->did<<16)|p->vid;
 		ctlr->cls = cls*4;
 		ctlr->nic = mem;
 
 		if(igbereset(ctlr)){
+			print("etherigbe: %T: igbereset fails\n", p->tbdf);
 			free(ctlr);
 			vunmap(mem, p->mem[0].size);
 			continue;
 		}
 		pcisetbme(p);
-
-		if(igbectlrhead != nil)
-			igbectlrtail->next = ctlr;
-		else
-			igbectlrhead = ctlr;
-		igbectlrtail = ctlr;
+		*cc = ctlr;
+		cc = &ctlr->next;
 	}
 }
 
@@ -2011,9 +2017,12 @@ static int
 igbepnp(Ether* edev)
 {
 	Ctlr *ctlr;
+	static int once;
 
-	if(igbectlrhead == nil)
+	if(once == 0){
+		once = 1;
 		igbepci();
+	}
 
 	/*
 	 * Any adapter matches if no edev->port is supplied,

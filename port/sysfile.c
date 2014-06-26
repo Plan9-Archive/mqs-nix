@@ -207,7 +207,7 @@ syspipe(Ar0* ar0, va_list list)
 	 */
 	a = va_arg(list, int*);
 	a = validaddr(a, sizeof(fd), 1);
-	evenaddr(PTR2UINT(a));
+	validalign(PTR2UINT(a), sizeof(int));
 
 	c[0] = namec("#|", Atodir, 0, 0);
 	c[1] = nil;

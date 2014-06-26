@@ -25,8 +25,7 @@ dev +dev
 	pci
 
 	uart
-	kbin
-	kbmap
+	pckb
 	usb
 
 uart +dev
@@ -44,19 +43,25 @@ ip +dev
 
 link +dev
 	resmem
+
 	ether8169	pci ethermii
 #	ether82557	pci
 	ether82563	pci
 	etherbcm	pci ethermii
 	etherigbe	pci ethermii
+
 	ether82598	pci
 #	ether57711	pci
 	etherm10g	pci
+
+	etheri40		pci
+
 	ethermedium
-#	loopbackmedium
+#	must have for venti (please fix venti)
+	loopbackmedium
 #	netdevmedium
 	usbuhci
-#	usbohci
+	usbohci
 	usbehci 		usbehcipc
 
 sd +dev
@@ -65,16 +70,19 @@ sd +dev
 	sdide		sdscsifis sdatafis
 	sdodin		sdscsifis sdatafis
 	sdvanir		sdscsifis sdatafis
+	sdmpt2		sdscsifis sdatafis
 	sdloop
 
 misc +dev
-	mp		mpacpi lapic ioapic msi pci sipi
+#	mp		mpacpi lapic ioapic msi pci sipi
+	acpi		acpiio lapic ioapic msi pci sipi
+	nodraw
 
 boot cpu
 	il
 
 rootdir
-	bootcpu.out boot
+	boot$CONF.out boot
 	/amd64/bin/auth/factotum factotum
 	/amd64/bin/ip/ipconfig ipconfig
 	/amd64/bin/usb/usbd usbd
@@ -86,9 +94,10 @@ dbgflg
 	apic		'A'
 	arch		'V'
 	devacpi		'C'
+	acpi		'C'
+	acpiio		'C'
 	devsegment	'z'
 	hpet		'H'
-	ht		'H'
 	image		'p'
 	ioapic		'I'
 	main		'x'
@@ -114,9 +123,8 @@ amd64 +dev
 	cga
 	options
 	fpu
-#	i8254
+	i8042
 	i8259
-	kbd
 	main
 	map
 	mmu
@@ -153,6 +161,7 @@ port
 	qio
 	qlock
 	rebootcmd
+	ref
 	segment
 	sysauth
 	sysfile
@@ -160,7 +169,9 @@ port
 	sysseg
 #	syssem
 	systab
-	taslock
+#	taslock
+#	tiklock
+	mcslock
 	tod
 	syscallfmt
 
@@ -169,8 +180,12 @@ dir
 	port
 
 lib
+	libaml
 	libip
 	libsec
 	libmp
 	libfis
 	libc
+
+mkargs
+	CFLAGS=-FVTw

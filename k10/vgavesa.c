@@ -115,7 +115,7 @@ vesalinear(VGAscr *scr, int, int)
 	int i, mode, size;
 	char *s;
 	uchar *p;
-	ulong paddr;
+	uintmem pa;
 	Pcidev *pci;
 
 	if(hardscreen) {
@@ -138,7 +138,7 @@ vesalinear(VGAscr *scr, int, int)
 	if(!(WORD(p+0) & (1<<7)))
 		error("not in linear graphics mode");
 
-	paddr = LONG(p+40);
+	pa = LONG(p+40);
 	size = WORD(p+20)*WORD(p+16);
 	size = ROUNDUP(size, PGSZ);
 
@@ -152,7 +152,7 @@ vesalinear(VGAscr *scr, int, int)
 		if(pci->ccrb != Pcibcdisp)
 			continue;
 		for(i=0; i<nelem(pci->mem); i++)
-			if(paddr == (pci->mem[i].bar&~0x0F)){
+			if(pa == (pci->mem[i].bar&~(uintmem)0xf)){
 				if(pci->mem[i].size > size)
 					size = pci->mem[i].size;
 				goto havesize;
@@ -166,7 +166,7 @@ vesalinear(VGAscr *scr, int, int)
 		size = ROUNDUP(size, 1024*1024);
 
 havesize:
-	vgalinearaddr(scr, paddr, size);
+	vgalinearaddr(scr, pa, size);
 	if(scr->apsize)
 		addvgaseg("vesascreen", scr->paddr, scr->apsize);
 
@@ -182,13 +182,13 @@ static void
 vesaflush(VGAscr *scr, Rectangle r)
 {
 	int t, w, wid, off;
-	ulong *hp, *sp, *esp;
+	u32int *hp, *sp, *esp;
 
 	if(hardscreen == nil)
 		return;
 	if(rectclip(&r, scr->gscreen->r) == 0)
 		return;
-	sp = (ulong*)(scr->gscreendata->bdata + scr->gscreen->zero);
+	sp = (u32int*)(scr->gscreendata->bdata + scr->gscreen->zero);
 	t = (r.max.x * scr->gscreen->depth + 2*BI2WD-1) / BI2WD;
 	w = (r.min.x * scr->gscreen->depth) / BI2WD;
 	w = (t - w) * BY2WD;

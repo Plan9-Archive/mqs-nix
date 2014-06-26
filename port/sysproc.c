@@ -105,7 +105,7 @@ sysrfork(Ar0* ar0, va_list list)
 		nexterror();
 	}
 	for(i = 0; i < NSEG; i++)
-		if(up->seg[i])
+		if(up->seg[i] != nil)
 			p->seg[i] = dupseg(up->seg, i, n);
 	qunlock(&p->seglock);
 	poperror();
@@ -193,7 +193,7 @@ sysrfork(Ar0* ar0, va_list list)
 	p->mp = up->mp;
 
 	wm = up->wired;
-	if(wm)
+	if(wm != nil)
 		procwired(p, wm->machno);
 	p->color = up->color;
 	ready(p);
@@ -248,7 +248,7 @@ sysexec(Ar0* ar0, va_list list)
 	ufile = va_arg(list, char*);
 	ufile = validaddr(ufile, 1, 0);
 	argv = va_arg(list, char**);
-	evenaddr(PTR2UINT(argv));
+	validalign(PTR2UINT(argv), sizeof(char**));
 
 	file = nil;
 	elem = nil;
@@ -525,9 +525,6 @@ sysexec(Ar0* ar0, va_list list)
 		}
 	}
 
-	/* Text.  Shared. Attaches to cache image if possible
-	 * but prepaged if EXAC
-	 */
 	img = attachimage(SG_TEXT|SG_RONLY, chan, up->color, UTZERO, textlim);
 	s = img->s;
 	up->seg[TSEG] = s;
@@ -641,14 +638,13 @@ syssleep(Ar0* ar0, va_list list)
 void
 sysalarm(Ar0* ar0, va_list list)
 {
-	unsigned long ms;
+	ulong ms;
 
 	/*
-	 * long alarm(unsigned long millisecs);
+	 * long alarm(ulong millisecs);
 	 * Odd argument type...
 	 */
-	ms = va_arg(list, unsigned long);
-
+	ms = va_arg(list, ulong);
 	ar0->l = procalarm(ms);
 }
 
@@ -817,7 +813,7 @@ sysrendezvous(Ar0* ar0, va_list list)
 			val = p->rendval;
 			p->rendval = PTR2UINT(va_arg(list, void*));
 
-			while(p->mach != 0)
+			while(!procsaved(p))
 				pause();
 			ready(p);
 			unlock(up->rgrp);
@@ -962,7 +958,7 @@ semwakeup(Segment* s, int* addr, int n)
 	for(p = s->sema.next; p != &s->sema && n > 0; p = p->next){
 		if(p->addr == addr && p->waiting){
 			p->waiting = 0;
-			coherence();
+			sfence();
 			wakeup(p);
 			n--;
 		}
@@ -1002,7 +998,7 @@ canacquire(int* addr)
 static int
 semawoke(void* p)
 {
-	coherence();
+	lfence();
 	return !((Sema*)p)->waiting;
 }
 
@@ -1022,7 +1018,7 @@ semacquire(Segment* s, int* addr, int block)
 	semqueue(s, addr, &phore);
 	for(;;){
 		phore.waiting = 1;
-		coherence();
+		sfence();
 		if(canacquire(addr)){
 			acquired = 1;
 			break;
@@ -1033,7 +1029,7 @@ semacquire(Segment* s, int* addr, int block)
 		poperror();
 	}
 	semdequeue(s, &phore);
-	coherence();	/* not strictly necessary due to lock in semdequeue */
+	lfence();		/* not strictly necessary (and arguablly wrong!) due to lock in semdequeue */
 	if(!phore.waiting)
 		semwakeup(s, addr, 1);
 	if(!acquired)
@@ -1059,7 +1055,7 @@ tsemacquire(Segment* s, int* addr, long ms)
 	semqueue(s, addr, &phore);
 	for(;;){
 		phore.waiting = 1;
-		coherence();
+		sfence();
 		if(canacquire(addr)){
 			acquired = 1;
 			break;
@@ -1074,7 +1070,7 @@ tsemacquire(Segment* s, int* addr, long ms)
 			break;
 	}
 	semdequeue(s, &phore);
-	coherence();	/* not strictly necessary due to lock in semdequeue */
+	lfence();		/* not strictly necessary due to lock in semdequeue */
 	if(!phore.waiting)
 		semwakeup(s, addr, 1);
 	if(ms <= 0)
@@ -1096,7 +1092,7 @@ syssemacquire(Ar0* ar0, va_list list)
 	 * int semacquire(int* addr, int block);
 	 */
 	addr = va_arg(list, int*);
-	evenaddr(PTR2UINT(addr));
+	validalign(PTR2UINT(addr), sizeof(long));
 	block = va_arg(list, int);
 
 	if((s = seg(up, PTR2UINT(addr), 0)) == nil)
@@ -1120,7 +1116,7 @@ systsemacquire(Ar0* ar0, va_list list)
 	 */
 	addr = va_arg(list, int*);
 	addr = validaddr(addr, sizeof(int), 1);
-	evenaddr(PTR2UINT(addr));
+	validalign(PTR2UINT(addr), sizeof(long));
 	ms = va_arg(list, ulong);
 
 	if((s = seg(up, PTR2UINT(addr), 0)) == nil)
@@ -1143,8 +1139,8 @@ syssemrelease(Ar0* ar0, va_list list)
 	 * int semrelease(int* addr, int count);
 	 */
 	addr = va_arg(list, int*);
-	addr = validaddr(addr, sizeof(int), 1);
-	evenaddr(PTR2UINT(addr));
+	addr = validaddr(addr, sizeof(int*), 1);
+	validalign(PTR2UINT(addr), sizeof(int*));
 	delta = va_arg(list, int);
 
 	if((s = seg(up, PTR2UINT(addr), 0)) == nil)
@@ -1153,4 +1149,10 @@ syssemrelease(Ar0* ar0, va_list list)
 		error(Ebadarg);
 
 	ar0->i = semrelease(s, addr, delta);
+}
+
+void
+sys_nsec(Ar0* ar0, va_list)
+{
+	ar0->vl = todget(nil);
 }

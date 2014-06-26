@@ -52,6 +52,9 @@ enum {
 
 /* cap2 bits */
 enum {
+	Dseo	= 1<<5,	/* sleep entrance from slumber only */
+	Sadm	= 1<<4,	/* aggressive sleep mgmt */
+	Sds	= 1<<3,	/* device sleep supported */
 	Apts	= 1<<2,	/* automatic partial to slumber */
 	Nvmp	= 1<<1,	/* nvmhci present; nvram */
 	Boh	= 1<<0,	/* bios/os handoff supported */
@@ -165,12 +168,12 @@ enum {
 	Acr	= 1<<15,	/* cmdlist running */
 	Afr	= 1<<14,	/* fis running */
 	Ampss	= 1<<13,	/* mechanical presence switch state */
-	Accs	= 1<<8,		/* current command slot 12:08 */
-	Afre	= 1<<4,		/* fis enable receive */
-	Aclo	= 1<<3,		/* command list override */
-	Apod	= 1<<2,		/* power on dev (requires cold-pres. detect) */
-	Asud	= 1<<1,		/* spin-up device;  requires ss capability */
-	Ast	= 1<<0,		/* start */
+	Accs	= 1<<8,	/* current command slot 12:08 */
+	Afre	= 1<<4,	/* fis enable receive */
+	Aclo	= 1<<3,	/* command list override */
+	Apod	= 1<<2,	/* power on dev (requires cold-pres. detect) */
+	Asud	= 1<<1,	/* spin-up device;  requires ss capability */
+	Ast	= 1<<0,	/* start */
 
 	Arun	= Ast|Acr|Afre|Afr,
 	Apwr	= Apod|Asud,
@@ -184,7 +187,7 @@ enum {
 };
 
 /* sstatus register bits */
-enum{
+enum {
 	/* sstatus det */
 	Smissing		= 0<<0,
 	Spresent		= 1<<0,
@@ -204,10 +207,31 @@ enum{
 	Iactive		= 1<<8,
 	Isleepy		= 2<<8,
 	Islumber		= 6<<8,
-	Imask		= 7<<8,
+	Isleep		= 8<<8,
+	Imask		= 15<<8,
 
 	SImask		= Smask | Imask,
 	SSmask		= Smask | Isleepy,
+};
+
+/* fbs register bits */
+enum {
+	Dwe		= 1<<16,		/* device with error 4 bits */
+	Ado		= 1<<12,		/* active dev optimization 4 bits */
+	D2issue		= 1<<8,		/* device to issue 4 bits */
+	Sde		= 1<<2,		/* single device error */
+	Dec		= 1<<1,		/* device error clear (r1c) */
+	Fbsen		= 1<<0,		/* enable switching */
+};
+
+/* devslp register bits */
+enum {
+	Ditom		= 1<<25,		/* dito multiplier (4 bits) */
+	Dito		= 1<<15,		/* idle timeout (10 bits) */
+	Mdat		= 1<<10,		/* minimum sleep assertion time */
+	Deto		= 1<<2,		/* exit timeout (8 bits) ms */
+	Dsp		= 1<<1,		/* present */
+	Asde		= 1<<0,		/* enable */
 };
 
 #define	sstatus	scr0
@@ -234,7 +258,8 @@ typedef struct {
 	u32int	ci;		/* command issue */
 	u32int	scr4;
 	u32int	fbs;
-	u32int	res2[11];
+	u32int	devslp;
+	u32int	res2[10];
 	u32int	vendor[4];
 } Aport;
 

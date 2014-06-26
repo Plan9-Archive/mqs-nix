@@ -160,7 +160,7 @@ struct Ep
 	char*	info;		/* for humans to read */
 	long	maxpkt;		/* maximum packet size */
 	int	ttype;		/* tranfer type */
-	ulong	load;		/* in µs, for a fransfer of maxpkt bytes */
+	uint	load;		/* in µs, for a fransfer of maxpkt bytes */
 	void*	aux;		/* for controller specific info */
 	int	rhrepl;		/* fake root hub replies */
 	int	toggle[2];	/* saved toggles (while ep is not in use) */

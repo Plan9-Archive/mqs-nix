@@ -14,6 +14,7 @@
 #include "dat.h"
 #include "fns.h"
 
+#include "../port/error.h"
 #include "../port/netif.h"
 
 #include "etherif.h"
@@ -189,7 +190,7 @@ typedef struct Ctlr {
 	Lock	slock;			/* attach */
 	int	state;
 
-	uintmem	port;
+	int	port;
 	Pcidev*	pcidev;
 	Ctlr*	next;
 	int	active;
@@ -400,7 +401,7 @@ attach(Ether* ether)
 }
 
 static long
-ifstat(Ether* ether, void* a, long n, usize offset)
+ifstat(Ether* ether, void* a, usize n, usize offset)
 {
 	char *p;
 	int i, len, phyaddr;
@@ -435,6 +436,8 @@ ifstat(Ether* ether, void* a, long n, usize offset)
 	unlock(&ctlr->dlock);
 
 	p = malloc(READSTR);
+	if(p == nil)
+		error(Enomem);
 	len = snprint(p, READSTR, "transmit good frames: %ud\n", dump[0]);
 	len += snprint(p+len, READSTR-len, "transmit maximum collisions errors: %ud\n", dump[1]);
 	len += snprint(p+len, READSTR-len, "transmit late collisions errors: %ud\n", dump[2]);
@@ -931,11 +934,14 @@ i82557pci(void)
 		default:
 			continue;
 		case 0x1031:		/* Intel 82562EM */
+		case 0x103B:		/* Intel 82562EM */
+		case 0x103C:		/* Intel 82562EM */
 		case 0x1050:		/* Intel 82562EZ */
 		case 0x1039:		/* Intel 82801BD PRO/100 VE */
 		case 0x103A:		/* Intel 82562 PRO/100 VE */
 		case 0x103D:		/* Intel 82562 PRO/100 VE */
 		case 0x1064:		/* Intel 82562 PRO/100 VE */
+		case 0x1092:		/* Intel 27DA PRO/100 VE */
 		case 0x2449:		/* Intel 82562ET */
 		case 0x27DC:		/* Intel 82801G PRO/100 VE */
 			nop = 1;

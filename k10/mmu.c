@@ -87,7 +87,7 @@ memflagssz(uint flag, int ps)
 }
 
 void
-mmuflushtlb(uintmem)
+xmmuflushtlb(uintmem)
 {
 
 	m->tlbpurge++;
@@ -95,7 +95,25 @@ mmuflushtlb(uintmem)
 		memset(UINT2PTR(m->pml4->va), 0, m->pml4->daddr*sizeof(PTE));
 		m->pml4->daddr = 0;
 	}
-	cr3put(m->pml4->pa);
+	putcr3(m->pml4->pa);
+}
+
+/* hack for vbox */
+void
+mmuflushtlb(uintmem)
+{
+	int i;
+	PTE *pte;
+
+	m->tlbpurge++;
+	if(m->pml4->daddr){
+		pte = UINT2PTR(m->pml4->va);
+		for(i = 0; i < m->pml4->daddr; i++)
+			if(pte[i] & PteP)
+				pte[i] = 0;
+		m->pml4->daddr = 0;
+	}
+	putcr3(m->pml4->pa);
 }
 
 void
@@ -104,8 +122,8 @@ mmuflush(void)
 	Mpl pl;
 
 	pl = splhi();
-	up->newtlb = 1;
-	mmuswitch(up);
+	m->proc->newtlb = 1;
+	mmuswitch(m->proc);
 	splx(pl);
 }
 
@@ -259,6 +277,7 @@ mmuptpalloc(void)
 void
 mmuswitch(Proc* proc)
 {
+	int i;
 	PTE *pte;
 	Page *page;
 	Mpl pl;
@@ -270,7 +289,12 @@ mmuswitch(Proc* proc)
 	}
 
 	if(m->pml4->daddr){
-		memset(UINT2PTR(m->pml4->va), 0, m->pml4->daddr*sizeof(PTE));
+		/* hack for vbox */
+//		memset(UINT2PTR(m->pml4->va), 0, m->pml4->daddr*sizeof(PTE));
+		pte = UINT2PTR(m->pml4->va);
+		for(i = 0; i < m->pml4->daddr; i++)
+			if(pte[i] & PteP)
+				pte[i] = 0;
 		m->pml4->daddr = 0;
 	}
 
@@ -283,7 +307,7 @@ mmuswitch(Proc* proc)
 	}
 
 	tssrsp0(STACKALIGN(PTR2UINT(proc->kstack+KSTACK)));
-	cr3put(m->pml4->pa);
+	putcr3(m->pml4->pa);
 	splx(pl);
 }
 
@@ -310,7 +334,7 @@ mmurelease(Proc* proc)
 	proc->mmuptp[0] = nil;
 
 	tssrsp0(STACKALIGN(m->stack+MACHSTKSZ));
-	cr3put(m->pml4->pa);
+	putcr3(m->pml4->pa);
 }
 
 static void
@@ -540,17 +564,15 @@ walkalloc(usize size)
 	return 0;
 }
 
-uintptr
-kseg2map(uintmem pa, uintmem len, uint basef)
+void
+mmumap(uintmem pa, uintptr va, u64int len, uint basef)
 {
 	int i, l;
-	uintptr va;
 	uintmem mem, nextmem;
 	PTE *pte, *pml4;
 
-	DBG("kseg2map: %#P %#P size %P\n", pa, pa+len, len);
+	DBG("map: %#P %#P size %P\n", pa, pa+len, len);
 	pml4 = UINT2PTR(m->pml4->va);
-	va = KSEG2+pa;
 	for(mem = pa; mem < pa+len; mem = nextmem){
 		nextmem = (mem + PGLSZ(0)) & ~m->pgszmask[0];
 		for(i = m->npgsz - 1; i >= 0; i--){
@@ -559,13 +581,19 @@ kseg2map(uintmem pa, uintmem len, uint basef)
 			if(mem + PGLSZ(i) > pa+len)
 				continue;
 			if((l = mmuwalk(pml4, va, i, &pte, walkalloc)) < 0)
-				panic("mmu: kseg2map");
+				panic("mmu: map");
 			*pte = mem|memflagssz(basef, PGLSZ(l));
 			nextmem = mem + PGLSZ(i);
 			va += PGLSZ(i);
 			break;
 		}
 	}
+}
+
+uintptr
+kseg2map(uintmem pa, uintmem len, uint basef)
+{
+	mmumap(pa, KSEG2+pa, len, basef);
 	return KSEG2+pa;
 }
 
@@ -575,6 +603,8 @@ vmapsync(uintptr va)
 	int use, flags;
 	uintmem pa, sz;
 
+	if(va < KSEG2 || va > KSEG2END)
+		return -1;
 	pa = va - KSEG2;
 	if((pa = adrmemtype(pa, &sz, &flags, &use)) == 0 || use != Mvmap)
 		return -1;
@@ -604,6 +634,9 @@ vmapflags(uintmem pa, usize size, uint flags)
 	pa -= o;
 	sz = ROUNDUP(size+o, PGSZ);
 
+	if(pa+sz == 0 || pa >= -KSEG2)
+		return nil;
+
 	/*
 	 * This is incomplete; the checks are not comprehensive
 	 * enough.  Assume requests for low memory are already mapped.
@@ -612,12 +645,11 @@ vmapflags(uintmem pa, usize size, uint flags)
 		return KADDR(pa+o);
 	if(pa < 1ull*MiB)
 		return nil;
-
 	/*
 	 * only adralloc the actual request.  pci bars can be less than 1 page.
 	 * take it on faith that they don't overlap.
 	 */
-	if(pa == 0 || adralloc(pa+o, size, 0, -1, Mvmap, flags) == 0){
+	if(pa == 0 || adralloc(pa+o, size, 0, -1, Mvmap, flags) == ~0ull){
 		print("vmapflags(0, %lud) pc=%#p\n", size, getcallerpc(&pa));
 		return nil;
 	}
@@ -650,6 +682,54 @@ vmappat(uintmem pa, usize size, uint pattype)
 	return vmap(pa, size);
 }
 
+/*
+ * sleezy code to deal with overlapping page-size vmaps.
+ * this is currently necessary because acpi maps overlap.
+ * please remove this by either just mapping all acpi
+ * memory (can we count on good acpi tables?), or
+ * keeping one map at a time.
+ * assume boot time, omit locks.
+ */
+typedef struct Remap Remap;
+struct Remap {
+	uintmem	map[300];
+	usize	n;
+};
+static	Remap	smap;
+
+void*
+vmapoverlap(uintmem pa0, usize sz)
+{
+	int i, o;
+	uintmem pa, p;
+
+	o = pa0 - (pa0 & ~(PGSZ-1));
+	pa = pa0 - o;
+	sz = ROUNDUP(sz+o, PGSZ);
+
+	if(pa+sz == 0 || pa >= -KSEG2)
+		return nil;
+
+	if(pa+sz < 1ull*MiB)
+		return KADDR(pa+o);
+	if(pa < 1ull*MiB)
+		return nil;
+	for(p = pa; p < pa+sz; p += PGSZ){
+		for(i = 0; i < smap.n; i++)
+			if(p == smap.map[i])
+				break;
+		if(i == smap.n){
+			if(smap.n == nelem(smap.map))
+				panic("smap.map too small %ld", smap.n);
+			if(vmap(p, PGSZ) == nil)
+				return nil;
+			smap.map[smap.n++] = p;
+		}
+	}
+	/* sleezy assumption, we know everything's direct mapped at KSEG2 */
+	return UINT2PTR(KSEG2 + pa0);
+}
+
 void
 vunmap(void* v, usize size)
 {
@@ -674,7 +754,7 @@ vunmap(void* v, usize size)
 //	kseg2map(pa, sz, 0);
 	if(active.thunderbirdsarego == 0){
 		kseg2map(pa, sz, 0);
-		cr3put(m->pml4->pa);
+		putcr3(m->pml4->pa);
 	}else{
 //		wait for all other maches to reload cr3
 	}
@@ -684,6 +764,49 @@ vunmap(void* v, usize size)
 	 * used for the allocation (e.g. page table pages).
 	 */
 	DBG("vunmap(%#p, %lud)\n", v, size);
+}
+
+enum {
+	Tmpaddr		= KSEG2END,
+};
+
+/* processor-local single 4k page map */
+void*
+tmpmap(uintmem pa)
+{
+	usize o;
+	PTE *pml4, *pte;
+	Mpl pl;
+
+	DBG("%d: tmpmap(%#P, )\n", m->machno, pa);
+	o = pa & ((1<<PGSHIFT)-1);
+	pa -= o;
+
+	pml4 = UINT2PTR(m->pml4->va);
+	pl = splhi();
+	if(mmuwalk(pml4, Tmpaddr, 0, &pte, walkalloc) < 0)
+		panic("mmu: tmpmap: mmuwalk");
+	*pte = pa | memflagssz(PteP|PteRW, PGLSZ(0));
+	invlpg(Tmpaddr);			/* forgot to unmap?  error? */
+	splx(pl);
+
+	DBG("%d: tmpmap(%#P) → %#p + %lux\n", m->machno, pa, Tmpaddr, o);
+	return UINT2PTR(Tmpaddr + o);
+}
+
+void
+tmpunmap(void*)
+{
+	PTE *pml4, *pte;
+	Mpl pl;
+
+	pml4 = UINT2PTR(m->pml4->va);
+	pl = splhi();
+	if(mmuwalk(pml4, Tmpaddr, 0, &pte, nil) < 0)
+		panic("mmu: tmpmap: mmuwalk");
+	*pte = 0;
+	invlpg(Tmpaddr);
+	splx(pl);
 }
 
 int
@@ -782,7 +905,7 @@ apmmuinit(void)
 
 	nxeon();
 	patinit();
-	cr3put(m->pml4->pa);
+	putcr3(m->pml4->pa);
 	DBG("m %#p pml4 %#p\n", m, m->pml4);
 }
 
@@ -796,7 +919,7 @@ mmuinit(void)
 	DBG("mach%d: %#p pml4 %#p npgsz %d\n", m->machno, m, m->pml4, m->npgsz);
 
 	page = &mach0pml4;
-	page->pa = cr3get();
+	page->pa = getcr3();
 	page->va = PTR2UINT(KADDR(page->pa));
 
 	m->pml4 = page;

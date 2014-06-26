@@ -1,3 +1,10 @@
+typedef	struct	Hwconf	Hwconf;
+typedef	struct	Pciconf	Pciconf;
+typedef	struct	Pcidev	Pcidev;
+typedef	struct	Vctl	Vctl;
+typedef	struct	Vkey	Vkey;
+typedef	struct	Vtime	Vtime;
+
 enum {
 	VectorNMI	= 2,		/* non-maskable interrupt */
 	VectorBPT	= 3,		/* breakpoint */
@@ -8,6 +15,7 @@ enum {
 	VectorPF	= 14,		/* page fault */
 	Vector15	= 15,		/* reserved */
 	VectorCERR	= 16,		/* coprocessor error */
+	VectorSIMD	= 19,		/* SIMD error */
 
 	VectorPIC	= 32,		/* external i8259 interrupts */
 	IrqCLOCK	= 0,
@@ -58,18 +66,26 @@ enum {
 	IdtMAX		= 255,
 };
 
-typedef	struct	Vkey	Vkey;
-typedef	struct	Vctl	Vctl;
+enum {
+	Vmsix		= 1<<0,			/* allow msi-x allocation (unfortunately this changes handlers */
+};
 
 struct Vkey {
 	int	tbdf;			/* pci: ioapic or msi sources */
 	int	irq;			/* 8259-emulating sources */
 };
 
+struct Vtime {
+	uvlong	count;
+	uvlong	cycles;
+};
+
 struct Vctl {
 	Vctl*	next;			/* handlers on this vector */
 
-	int	isintr;			/* interrupt or fault/trap */
+	uchar	isintr;			/* interrupt or fault/trap */
+	uchar	flag;
+	int	affinity;			/* processor affinity (-1 for none) */
 
 	Vkey;				/* source-specific key; tbdf for pci */
 	void	(*f)(Ureg*, void*);	/* handler to call */
@@ -81,6 +97,8 @@ struct Vctl {
 	int	(*eoi)(int);		/* eoi */
 	int	(*mask)(Vkey*, int);	/* interrupt enable returns masked vector */
 	int	vno;
+
+	Vtime;
 };
 
 enum {
@@ -111,11 +129,6 @@ enum {
 #define BUSTYPE(tbdf)	((tbdf)>>24)
 #define BUSBDF(tbdf)	((tbdf)&0x00FFFF00)
 #define BUSUNKNOWN	(-1)
-
-enum {
-	MaxEISA		= 16,
-	CfgEISA		= 0xC80,
-};
 
 /*
  * PCI support code.
@@ -172,26 +185,6 @@ enum {					/* type 1 pre-defined header */
 	PciBCR		= 0x3E,		/* bridge control register */
 };
 
-enum {					/* type 2 pre-defined header */
-	PciCBExCA	= 0x10,
-	PciCBSPSR	= 0x16,
-	PciCBPBN	= 0x18,		/* primary bus number */
-	PciCBSBN	= 0x19,		/* secondary bus number */
-	PciCBUBN	= 0x1A,		/* subordinate bus number */
-	PciCBSLTR	= 0x1B,		/* secondary latency timer */
-	PciCBMBR0	= 0x1C,
-	PciCBMLR0	= 0x20,
-	PciCBMBR1	= 0x24,
-	PciCBMLR1	= 0x28,
-	PciCBIBR0	= 0x2C,		/* I/O base */
-	PciCBILR0	= 0x30,		/* I/O limit */
-	PciCBIBR1	= 0x34,		/* I/O base */
-	PciCBILR1	= 0x38,		/* I/O limit */
-	PciCBSVID	= 0x40,		/* subsystem vendor ID */
-	PciCBSID	= 0x42,		/* subsystem ID */
-	PciCBLMBAR	= 0x44,		/* legacy mode base address */
-};
-
 /* capabilities */
 enum {
 	PciCapPMG	= 0x01,		/* power management */
@@ -209,9 +202,7 @@ enum {
 	PciCapHSW	= 0x0c,		/* hot swap */
 };
 
-typedef struct Pcidev Pcidev;
-struct Pcidev
-{
+struct Pcidev {
 	int	tbdf;			/* type+bus+device+function */
 	ushort	vid;			/* vendor ID */
 	ushort	did;			/* device ID */
@@ -227,7 +218,7 @@ struct Pcidev
 	uchar	intl;			/* interrupt line */
 
 	struct {
-		u32int	bar;		/* base address */
+		uintmem	bar;		/* base address */
 		int	size;
 	} mem[6];
 
@@ -236,11 +227,50 @@ struct Pcidev
 	Pcidev*	bridge;			/* down a bus */
 };
 
+struct Pciconf {
+	char	*type;
+	uintmem	port;
+	uintmem	mem;
+
+	int	irq;
+	int	tbdf;
+
+	int	nopt;
+	char	optbuf[128];
+	char	*opt[8];
+};
+
+struct Hwconf {
+	Pciconf;
+};
+
+void	archpciinit(void);
+int	pcicap(Pcidev*, int);
+int	pcicfgr16(Pcidev*, int);
+uint	pcicfgr32(Pcidev*, int);
+int	pcicfgr8(Pcidev*, int);
+void	pcicfgw16(Pcidev*, int, int);
+void	pcicfgw32(Pcidev*, int, int);
+void	pcicfgw8(Pcidev*, int, int);
+void	pciclrbme(Pcidev*);
+void	pciclriome(Pcidev*);
+void	pciclrmwi(Pcidev*);
+int	pciconfig(char*, int, Pciconf*);
+int	pcigetpms(Pcidev*);
+void	pcihinv(Pcidev*);
+Pcidev*	pcimatch(Pcidev*, int, int);
+Pcidev*	pcimatchtbdf(int);
+void	pcireset(void);
+void	pcisetbme(Pcidev*);
+void	pcisetioe(Pcidev*);
+void	pcisetmwi(Pcidev*);
+int	pcisetpms(Pcidev*, int);
+int	strtotbdf(char*, char**, int);
+
 #define PCIWINDOW	0
 #define PCIWADDR(va)	(PADDR(va)+PCIWINDOW)
+#define Pciwaddr(va)	PCIWADDR(va)
 #define Pciwaddrl(va)	((u32int)PCIWADDR(va))
 #define Pciwaddrh(va)	((u32int)(PCIWADDR(va)>>32))
-#define ISAWINDOW	0
-#define ISAWADDR(va)	(PADDR(va)+ISAWINDOW)
 
 #pragma	varargck	type	"T"	int

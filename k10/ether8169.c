@@ -117,6 +117,8 @@ enum {					/* Tcr */
 	Macv27		= 0x2c800000,	/* RTL8111e */
 	Macv28		= 0x2c000000,	/* RTL8111/8168B */
 	Macv29		= 0x40800000,	/* RTL8101/8102E */
+	Macv30		= 0x24000000,	/* RTL8101E? (untested) */
+	Macv40		= 0x4c000000,	/* RTL8168G */
 	Ifg0		= 0x01000000,	/* Interframe Gap 0 */
 	Ifg1		= 0x02000000,	/* Interframe Gap 1 */
 };
@@ -169,10 +171,13 @@ enum {					/* Phystatus */
 };
 
 enum {					/* Cplusc */
+	Txenb		= 0x0001,	/* enable C+ transmit */
+	Rxenb		= 0x0002,	/* enable C+ receive mode */
 	Mulrw		= 0x0008,	/* PCI Multiple R/W Enable */
 	Dac		= 0x0010,	/* PCI Dual Address Cycle Enable */
 	Rxchksum	= 0x0020,	/* Receive Checksum Offload Enable */
 	Rxvlan		= 0x0040,	/* Receive VLAN De-tagging Enable */
+	Macstatdis	= 0x0080,	/* Disable Mac Statistics */
 	Endian		= 0x0200,	/* Endian Mode */
 };
 
@@ -408,8 +413,8 @@ rtl8169mii(Ctlr* ctlr)
 	phy = mii->curphy;
 	switch(ctlr->macv){
 	case Macv28:
-		rtl8169miimiw(ctlr->mii, 1, 0x1f, 0);		/* power up phy */
-		rtl8169miimiw(ctlr->mii, 1, 0x1e, 0);
+		rtl8169miimiw(mii, 1, 0x1f, 0);		/* power up phy */
+		rtl8169miimiw(mii, 1, 0x1e, 0);
 	}
 	dprint("oui %#ux phyno %d, macv = %#8.8ux phyv = %#4.4ux\n",
 		phy->oui, phy->phyno, ctlr->macv, ctlr->phyv);
@@ -521,8 +526,8 @@ rtl8169ifstat(Ether* edev, void* a, long n, usize offset)
 		nexterror();
 	}
 
-	csr32w(ctlr, Dtccr+4, 0);
-	csr32w(ctlr, Dtccr, PCIWADDR(ctlr->dtcc)|Cmd);
+	csr32w(ctlr, Dtccr+4, Pciwaddrh(ctlr->dtcc));
+	csr32w(ctlr, Dtccr, Pciwaddrl(ctlr->dtcc)|Cmd);
 	for(timeo = 0; timeo < 1000; timeo++){
 		if(!(csr32r(ctlr, Dtccr) & Cmd))
 			break;
@@ -651,8 +656,8 @@ rtl8169replenish(Ctlr* ctlr)
 				break;
 			}
 			ctlr->rb[rdt] = bp;
-			d->addrlo = PCIWADDR(bp->rp);
-			d->addrhi = 0;
+			d->addrlo = Pciwaddrl(bp->rp);
+			d->addrhi = Pciwaddrh(bp->rp);
 		}else
 			iprint("i8169: rx overrun\n");
 		coherence();
@@ -715,8 +720,6 @@ rtl8169init(Ether* edev)
 	switch(ctlr->macv){
 	default:
 		panic("8169init: unknown macv: %.8ux", ctlr->macv);
-	case Macv01:
-		break;
 	case Macv02:
 	case Macv03:
 		cplusc |= 1<<14;			/* magic */
@@ -743,6 +746,11 @@ rtl8169init(Ether* edev)
 		pcicfgw8(ctlr->pcidev, 0x68, 0x00);	/* magic */
 		pcicfgw8(ctlr->pcidev, 0x69, 0x08);	/* magic */
 		break;
+	case Macv40:
+		cplusc |= Macstatdis;
+		cplusc &= ~Rxenb;
+		break;
+	case Macv01:
 	case Macv04:
 	case Macv07:
 	case Macv07a:
@@ -756,6 +764,7 @@ rtl8169init(Ether* edev)
 	case Macv27:
 	case Macv28:
 	case Macv29:
+	case Macv30:
 		break;
 	}
 
@@ -801,10 +810,10 @@ rtl8169init(Ether* edev)
 	 */
 	csr32w(ctlr, Mpc, 0);
 	csr8w(ctlr, Etx, 0x3f);
-	csr32w(ctlr, Tnpds+4, 0);
-	csr32w(ctlr, Tnpds, PCIWADDR(ctlr->td));
-	csr32w(ctlr, Rdsar+4, 0);
-	csr32w(ctlr, Rdsar, PCIWADDR(ctlr->rd));
+	csr32w(ctlr, Tnpds+4, Pciwaddrh(ctlr->td));
+	csr32w(ctlr, Tnpds, Pciwaddrl(ctlr->td));
+	csr32w(ctlr, Rdsar+4, Pciwaddrh(ctlr->rd));
+	csr32w(ctlr, Rdsar, Pciwaddrl(ctlr->rd));
 	csr16w(ctlr, Rms, Mtu);		/* was Mps; see above comment */
 	r = csr16r(ctlr, Mulint) & 0xF000;	/* no early rx interrupts */
 	csr16w(ctlr, Mulint, r);
@@ -964,8 +973,8 @@ rtl8169transmit(Ether* edev)
 			break;
 
 		d = &ctlr->td[x];
-		d->addrlo = PCIWADDR(bp->rp);
-		d->addrhi = 0;
+		d->addrlo = Pciwaddrl(bp->rp);
+		d->addrhi = Pciwaddrh(bp->rp);
 		ctlr->tb[x] = bp;
 		coherence();
 		d->control |= Own | Fs | Ls | BLEN(bp);
@@ -1127,6 +1136,8 @@ vetmacv(Ctlr *ctlr, uint *macv)
 	case Macv27:
 	case Macv28:
 	case Macv29:
+	case Macv30:
+	case Macv40:
 		break;
 	}
 	return 0;

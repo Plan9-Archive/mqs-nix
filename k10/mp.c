@@ -3,8 +3,13 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
+#include "io.h"
 
 #include "apic.h"
+
+#define l16get(p)	(((p)[1]<<8)|(p)[0])
+#define	l32get(p)	(((u32int)l16get(p+2)<<16)|l16get(p))
+#define	l64get(p)	(((u64int)l32get(p+4)<<32)|l32get(p))
 
 /*
  * MultiProcessor Specification Version 1.[14].
@@ -46,21 +51,17 @@ static Mpbus mpbusdef[] = {
 	{ "ISA   ", IPhigh, TMedge, },
 };
 static Mpbus* mpbus[Nbus];
-int mpisabusno = -1;
 
 static void
 mpintrprint(char* s, u8int* p)
 {
-	char buf[128], *b, *e;
-	char format[] = " type %d flags %#ux bus %d IRQ %d APIC %d INTIN %d\n";
+	char buf[64];
 
-	b = buf;
-	e = b + sizeof(buf);
-	b = seprint(b, e, "mpparse: intr:");
+	buf[0] = 0;
 	if(s != nil)
-		b = seprint(b, e, " %s:", s);
-	seprint(b, e, format, p[1], l16get(p+2), p[4], p[5], p[6], p[7]);
-	print(buf);
+		snprint(buf, sizeof buf, " %s:", s);
+	print("mpparse: intr:%s type %d flags %#ux bus %d irq %d apic %d intin %d",
+		buf, p[1], l16get(p+2), p[4], p[5], p[6], p[7]);
 }
 
 static u32int
@@ -93,8 +94,7 @@ mpmkintr(u8int* p)
 			mpintrprint("INTIN botch", p);
 			return 0;
 		case 3:				/* IOINTR */
-			apic = &xioapic[p[6]];
-			if(!apic->useable){
+			if((apic = ioapiclookup(p[6])) == nil){
 				mpintrprint("unuseable ioapic", p);
 				return 0;
 			}
@@ -104,8 +104,7 @@ mpmkintr(u8int* p)
 			}
 			break;
 		case 4:				/* LINTR */
-			apic = &xlapic[p[6]];
-			if(!apic->useable){
+			if((apic = lapiclookup(p[6])) == nil){
 				mpintrprint("unuseable lapic", p);
 				return 0;
 			}
@@ -113,6 +112,7 @@ mpmkintr(u8int* p)
 				mpintrprint("LOCAL INTIN out of range", p);
 				return 0;
 			}
+			USED(apic);
 			break;
 		}
 	}
@@ -176,9 +176,10 @@ mpmkintr(u8int* p)
 static int
 mpparse(PCMP* pcmp, int maxmach)
 {
-	u32int lo;
 	u8int *e, *p;
-	int nmach, devno, i, n;
+	int nmach, bustype, i, n;
+	u32int lo;
+	Apic *a;
 
 	nmach = 0;
 	p = pcmp->entries;
@@ -220,14 +221,6 @@ mpparse(PCMP* pcmp, int maxmach)
 		for(i = 0; i < nelem(mpbusdef); i++){
 			if(memcmp(p+2, mpbusdef[i].type, 6) != 0)
 				continue;
-			if(memcmp(p+2, "ISA   ", 6) == 0){
-				if(mpisabusno != -1){
-					print("mpparse: bus %d already have ISA bus %d\n",
-						p[1], mpisabusno);
-					continue;
-				}
-				mpisabusno = p[1];
-			}
 			mpbus[p[1]] = &mpbusdef[i];
 			break;
 		}
@@ -268,17 +261,13 @@ mpparse(PCMP* pcmp, int maxmach)
 		if(DBGFLG)
 			mpintrprint(nil, p);
 
-		/*
-		 * Always present the device number in the style
-		 * of a PCI Interrupt Assignment Entry. For the ISA
-		 * bus the IRQ is the device number but unencoded.
-		 * May need to handle other buses here in the future
-		 * (but unlikely).
-		 */
-		devno = p[5];
-		if(memcmp(mpbus[p[4]]->type, "PCI   ", 6) != 0)
-			devno <<= 2;
-		ioapicintrinit(p[4], p[6], p[7], devno, lo);
+		bustype = -1;
+		if(memcmp(mpbus[p[4]]->type, "PCI   ", 6) == 0)
+			bustype = BusPCI;
+		else if(memcmp(mpbus[p[4]]->type, "ISA   ", 6) == 0)
+			bustype = BusISA;
+		if(bustype != -1)
+			ioapicintrinit(bustype, p[4], p[6], p[7], p[5], lo);
 
 		p += 8;
 		break;
@@ -298,13 +287,15 @@ mpparse(PCMP* pcmp, int maxmach)
 		 */
 		if(p[6] == 0xff){
 			for(i = 0; i < Napic; i++){
-				if(!xlapic[i].useable || xlapic[i].addr != nil)
+				if((a = lapiclookup(i)) == nil || a->addr != nil)
 					continue;
-				xlapic[i].lvt[p[7]] = lo;
+				a->lvt[p[7]] = lo;
 			}
 		}
-		else
-			xlapic[p[6]].lvt[p[7]] = lo;
+		else{
+			if((a = lapiclookup(p[6])) != nil)
+				a->lvt[p[7]] = lo;
+		}
 		p += 8;
 		break;
 	}

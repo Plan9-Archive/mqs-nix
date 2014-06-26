@@ -202,12 +202,12 @@ timerintr(Ureg *u, void*)
 		tt->head = t->tnext;
 		assert(t->tt == tt);
 		t->tt = nil;
-		iunlock(tt);
-		if(t->tf)
+		if(t->tf){
+			iunlock(tt);
 			(*t->tf)(u, t);
-		else
+			ilock(tt);
+		}else
 			callhzclock = 1;
-		ilock(tt);
 		if(t->tmode == Tperiodic)
 			tadd(tt, t);
 	}
@@ -261,7 +261,7 @@ addclock0link(void (*f)(void), int ms)
  *  It is a LOT slower so shouldn't be used if you're just converting
  *  a delta.
  */
-ulong
+uint
 tk2ms(ulong ticks)
 {
 	uvlong t, hz;
@@ -269,9 +269,7 @@ tk2ms(ulong ticks)
 	t = ticks;
 	hz = HZ;
 	t *= 1000L;
-	t = t/hz;
-	ticks = t;
-	return ticks;
+	return t/hz;
 }
 
 ulong

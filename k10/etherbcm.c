@@ -30,7 +30,7 @@ struct Ctlr {
 	u32int	*nic, *status;
 
 	u32int	*recvret, *recvprod, *sendr;
-	uintptr	port;
+	uintmem	port;
 	uint	recvreti, recvprodi, sendri, sendcleani;
 	Block	**sends;
 	Block	**rxs;
@@ -48,7 +48,7 @@ enum {
 	/* configurable constants */
 	RxRetRingLen 		= 0x200,
 	RxProdRingLen 		= 0x200,
-	SendRingLen 		= 0x200,
+	TxRingLen 		= 0x200,
 
 	Reset 			= 1<<0,
 	Enable 			= 1<<1,
@@ -76,14 +76,14 @@ enum {
 	Memwind		= 0x7C,
 	MemwindData		= 0x84,
 
-	SendRCB 		= 0x100,
+	TxRCB 			= 0x100,
 	RxRetRCB 		= 0x200,
 
 	InterruptMailbox 		= 0x204,
 
 	RxProdBDRingIdx	= 0x26c,
 	RxBDRetRingIdx		= 0x284,
-	SendBDRingHostIdx	= 0x304,
+	TxBDRingHostIdx	= 0x304,
 
 	MACMode		= 0x400,
 	MACPortMask		= ~(1<<3 | 1<<2),
@@ -91,7 +91,7 @@ enum {
 	MACPortMII		= 1<<2,
 	MACEnable		= 1<<23 | 1<<22 | 1<<21 | 1 << 15 | 1 << 14 | 1<<12 | 1<<11,
 	MACHalfDuplex		= 1<<1,
-	
+
 	MACEventStatus		= 0x404,
 	MACEventEnable	= 0x408,
 	MACAddress		= 0x410,
@@ -105,28 +105,28 @@ enum {
 	TxMACLengths		= 0x464,
 	MACHash		= 0x470,
 	RxRules			= 0x480,
-	
+
 	RxRulesConf		= 0x500,
 	LowWaterMax		= 0x504,
 	LowWaterMaxMask	= ~0xFFFF,
 	LowWaterMaxValue	= 2,
 
-	SendDataInitiatorMode	= 0xC00,
-	SendInitiatorConf	= 0x0C08,
-	SendStats		= 1<<0,
-	SendInitiatorMask	= 0x0C0C,
+	TxDataInitiatorMode	= 0xC00,
+	TxInitiatorConf		= 0x0C08,
+	TxStats			= 1<<0,
+	TxInitiatorMask		= 0x0C0C,
 
-	SendDataCompletionMode = 0x1000,
-	SendBDSelectorMode	= 0x1400,
-	SendBDInitiatorMode	= 0x1800,
-	SendBDCompletionMode	= 0x1C00,
-	
+	TxDataCompletionMode	= 0x1000,
+	TxBDSelectorMode	= 0x1400,
+	TxBDInitiatorMode	= 0x1800,
+	TxBDCompletionMode	= 0x1C00,
+
 	RxListPlacementMode	= 0x2000,
 	RxListPlacement		= 0x2010,
 	RxListPlacementConf	= 0x2014,
 	RxStats			= 1<<0,
 	RxListPlacementMask	= 0x2018,
-	
+
 	RxDataBDInitiatorMode	= 0x2400,
 	RxBDHostAddr		= 0x2450,
 	RxBDFlags		= 0x2458,
@@ -134,40 +134,40 @@ enum {
 	RxDataCompletionMode	= 0x2800,
 	RxBDInitiatorMode	= 0x2C00,
 	RxBDRepl		= 0x2C18,
-	
+
 	RxBDCompletionMode	= 0x3000,
 	HostCoalMode		= 0x3C00,
 	HostCoalRxTicks		= 0x3C08,
-	HostCoalSendTicks	= 0x3C0C,
+	HostCoalTxTicks		= 0x3C0C,
 	RxMaxCoalFrames	= 0x3C10,
-	SendMaxCoalFrames	= 0x3C14,
+	TxMaxCoalFrames	= 0x3C14,
 	RxMaxCoalFramesInt	= 0x3C20,
-	SendMaxCoalFramesInt	= 0x3C24,
+	TxMaxCoalFramesInt	= 0x3C24,
 	StatusBlockHostAddr	= 0x3C38,
 	FlowAttention		= 0x3C48,
 
 	MemArbiterMode		= 0x4000,
-	
+
 	BufferManMode		= 0x4400,
-	
+
 	MBUFLowWater		= 0x4414,
 	MBUFHighWater		= 0x4418,
-	
+
 	ReadDMAMode		= 0x4800,
 	ReadDMAStatus		= 0x4804,
 	WriteDMAMode		= 0x4C00,
 	WriteDMAStatus		= 0x4C04,
-	
+
 	RISCState		= 0x5004,
 	FTQReset		= 0x5C00,
 	MSIMode		= 0x6000,
-	
+
 	ModeControl		= 0x6800,
 	ByteWordSwap		= 1<<4 | 1<<5 | 1<<2, // | 1<<1,
 	HostStackUp		= 1<<16,
-	HostSendBDs		= 1<<17,
+	HostTxBDs		= 1<<17,
 	InterruptOnMAC		= 1<<26,
-	
+
 	MiscConf		= 0x6804,
 	CoreClockBlocksReset	= 1<<0,
 	GPHYPwrdnOverride	= 1<<26,
@@ -177,8 +177,8 @@ enum {
 	MiscLocalControl		= 0x6808,
 	InterruptOnAttn		= 1<<3,
 	AutoSEEPROM		= 1<<24,
-	
-	SwArbitration		= 0x7020,
+
+	SwArbit			= 0x7020,
 	SwArbitSet1		= 1<<1,
 	SwArbitWon1		= 1<<9,
 	Pcitlplpl			= 0x7C00,	/* "lower 1k of the pcie pl regs" ?? */
@@ -186,11 +186,11 @@ enum {
 	PhyAuxControl		= 0x18,
 	PhyIntStatus		= 0x1A,
 	PhyIntMask		= 0x1B,
-	
+
 	Updated			= 1<<0,
 	LinkStateChange		= 1<<1,
 	Error			= 1<<2,
-	
+
 	PacketEnd		= 1<<2,
 	FrameError		= 1<<10,
 };
@@ -389,7 +389,7 @@ replenish(Ctlr *ctlr)
 	uint incr;
 	u32int *next;
 	Block *bp;
-	
+
 	incr = (ctlr->recvprodi + 1) & (RxProdRingLen - 1);
 	if(incr == (ctlr->status[2] >> 16))
 		return -1;
@@ -419,7 +419,7 @@ bcmreceive(Ether *edev)
 	u32int *pkt;
 	Ctlr *ctlr;
 	Block *bp;
-	
+
 	ctlr = edev->ctlr;
 	for(; pkt = currentrecvret(ctlr); replenish(ctlr), consumerecvret(ctlr)) {
 		bp = ctlr->rxs[pkt[7]];
@@ -444,13 +444,13 @@ static void
 bcmtransclean(Ether *edev)
 {
 	Ctlr *ctlr;
-	
+
 	ctlr = edev->ctlr;
 	ilock(&ctlr->txlock);
 	while(ctlr->sendcleani != (ctlr->status[4] >> 16)) {
 		freeb(ctlr->sends[ctlr->sendcleani]);
 		ctlr->sends[ctlr->sendcleani] = nil;
-		ctlr->sendcleani = (ctlr->sendcleani + 1) & (SendRingLen - 1);
+		ctlr->sendcleani = (ctlr->sendcleani + 1) & (TxRingLen - 1);
 	}
 	iunlock(&ctlr->txlock);
 }
@@ -462,11 +462,11 @@ bcmtransmit(Ether *edev)
 	u32int *next;
 	Ctlr *ctlr;
 	Block *bp;
-	
+
 	ctlr = edev->ctlr;
 	ilock(&ctlr->txlock);
 	for(;;){
-		incr = (ctlr->sendri + 1) & (SendRingLen - 1);
+		incr = (ctlr->sendri + 1) & (TxRingLen - 1);
 		if(incr == ctlr->sendcleani) {
 			dprint("bcm: send queue full\n");
 			ctlr->qfull++;
@@ -482,7 +482,7 @@ bcmtransmit(Ether *edev)
 		next[3] = 0;
 		ctlr->sends[ctlr->sendri] = bp;
 		coherence();
-		csr32(ctlr, SendBDRingHostIdx) = ctlr->sendri = incr;
+		csr32(ctlr, TxBDRingHostIdx) = ctlr->sendri = incr;
 	}
 	iunlock(&ctlr->txlock);
 }
@@ -491,7 +491,7 @@ static void
 bcmerror(Ether *edev)
 {
 	Ctlr *ctlr;
-	
+
 	ctlr = edev->ctlr;
 	if(csr32(ctlr, FlowAttention)) {
 		if(csr32(ctlr, FlowAttention) & 0xf8ff8080)
@@ -518,7 +518,7 @@ bcminterrupt(Ureg*, void *arg)
 	u32int status, tag, dummy;
 	Ether *edev;
 	Ctlr *ctlr;
-	
+
 	edev = arg;
 	ctlr = edev->ctlr;
 	ilock(&ctlr->imlock);
@@ -579,13 +579,13 @@ bcminit(Ether *edev)
 	uint i;
 	u32int j;
 	Ctlr *ctlr;
-	
+
 	ctlr = edev->ctlr;
 	dprint("bcm: reset\n");
 	/* initialization procedure according to the datasheet */
 	csr32(ctlr, MiscHostCtl) |= MaskPCIInt | ClearIntA | WordSwap | IndirAccessEn;
-	csr32(ctlr, SwArbitration) |= SwArbitSet1;
-	if(bcmµwait(ctlr, 2000, SwArbitration, SwArbitWon1, SwArbitWon1) == -1){
+	csr32(ctlr, SwArbit) |= SwArbitSet1;
+	if(bcmµwait(ctlr, 2000, SwArbit, SwArbitWon1, SwArbitWon1) == -1){
 		print("bcm: arbiter failed to respond\n");
 		return -1;
 	}
@@ -619,7 +619,7 @@ bcminit(Ether *edev)
 	 */
 	memset(ctlr->status, 0, 20);
 	csr32(ctlr, Dmarwctl) = (csr32(ctlr, Dmarwctl) & DMAWaterMask) | DMAWaterValue;
-	csr32(ctlr, ModeControl) |= HostSendBDs | HostStackUp | InterruptOnMAC;
+	csr32(ctlr, ModeControl) |= HostTxBDs | HostStackUp | InterruptOnMAC;
 	csr32(ctlr, MiscConf) = (csr32(ctlr, MiscConf) & TimerMask) | TimerValue;
 	csr32(ctlr, MBUFLowWater) = 0x20;
 	csr32(ctlr, MBUFHighWater) = 0x60;
@@ -640,12 +640,12 @@ bcminit(Ether *edev)
 	csr32(ctlr, RxBDFlags) = RxProdRingLen << 16;
 	csr32(ctlr, RxBDNIC) = 0x6000;
 	csr32(ctlr, RxBDRepl) = 25;
-	csr32(ctlr, SendBDRingHostIdx) = 0;
-	csr32(ctlr, SendBDRingHostIdx+4) = 0;
-	mem32w(ctlr, SendRCB, Pciwaddrh(ctlr->sendr));
-	mem32w(ctlr, SendRCB + 4, Pciwaddrl(ctlr->sendr));
-	mem32w(ctlr, SendRCB + 8, SendRingLen << 16);
-	mem32w(ctlr, SendRCB + 12, 0x4000);
+	csr32(ctlr, TxBDRingHostIdx) = 0;
+	csr32(ctlr, TxBDRingHostIdx+4) = 0;
+	mem32w(ctlr, TxRCB, Pciwaddrh(ctlr->sendr));
+	mem32w(ctlr, TxRCB + 4, Pciwaddrl(ctlr->sendr));
+	mem32w(ctlr, TxRCB + 8, TxRingLen << 16);
+	mem32w(ctlr, TxRCB + 12, 0x4000);
 	for(i=1; i<4; i++)
 		mem32w(ctlr, RxRetRCB + i * 0x10 + 8, 2);
 	mem32w(ctlr, RxRetRCB, Pciwaddrh(ctlr->recvret));
@@ -669,19 +669,19 @@ bcminit(Ether *edev)
 	csr32(ctlr, RxListPlacement) = 1<<3; /* one list */
 	csr32(ctlr, RxListPlacementMask) = 0xFFFFFF;
 	csr32(ctlr, RxListPlacementConf) |= RxStats;
-	csr32(ctlr, SendInitiatorMask) = 0xFFFFFF;
-	csr32(ctlr, SendInitiatorConf) |= SendStats;
+	csr32(ctlr, TxInitiatorMask) = 0xFFFFFF;
+	csr32(ctlr, TxInitiatorConf) |= TxStats;
 	csr32(ctlr, HostCoalMode) = 0;
 	if(bcmµwait(ctlr, 2000, HostCoalMode, ~0, 0) == -1){
 		print("bcm: failed to unset coalescing\n");
 		return -1;
 	}
 	csr32(ctlr, HostCoalRxTicks) = 150;
-	csr32(ctlr, HostCoalSendTicks) = 150;
+	csr32(ctlr, HostCoalTxTicks) = 150;
 	csr32(ctlr, RxMaxCoalFrames) = 10;
-	csr32(ctlr, SendMaxCoalFrames) = 10;
+	csr32(ctlr, TxMaxCoalFrames) = 10;
 	csr32(ctlr, RxMaxCoalFramesInt) = 0;
-	csr32(ctlr, SendMaxCoalFramesInt) = 0;
+	csr32(ctlr, TxMaxCoalFramesInt) = 0;
 	csr32(ctlr, StatusBlockHostAddr) = Pciwaddrh(ctlr->status);
 	csr32(ctlr, StatusBlockHostAddr + 4) = Pciwaddrl(ctlr->status);
 	csr32(ctlr, HostCoalMode) |= Enable;
@@ -693,13 +693,13 @@ bcminit(Ether *edev)
 	csr32(ctlr, WriteDMAMode) |= 0x200003fe; /* pulled out of my nose */
 	csr32(ctlr, ReadDMAMode) |= 0x3fe;
 	csr32(ctlr, RxDataCompletionMode) |= Enable | Attn;
-	csr32(ctlr, SendDataCompletionMode) |= Enable;
-	csr32(ctlr, SendBDCompletionMode) |= Enable | Attn;
+	csr32(ctlr, TxDataCompletionMode) |= Enable;
+	csr32(ctlr, TxBDCompletionMode) |= Enable | Attn;
 	csr32(ctlr, RxBDInitiatorMode) |= Enable | Attn;
 	csr32(ctlr, RxDataBDInitiatorMode) |= Enable | (1<<4);
-	csr32(ctlr, SendDataInitiatorMode) |= Enable;
-	csr32(ctlr, SendBDInitiatorMode) |= Enable | Attn;
-	csr32(ctlr, SendBDSelectorMode) |= Enable | Attn;
+	csr32(ctlr, TxDataInitiatorMode) |= Enable;
+	csr32(ctlr, TxBDInitiatorMode) |= Enable | Attn;
+	csr32(ctlr, TxBDSelectorMode) |= Enable | Attn;
 	ctlr->recvprodi = 0;
 	while(replenish(ctlr) >= 0)
 		;
@@ -748,7 +748,7 @@ didtype(Pcidev *p)
 {
 	if(p->vid != 0x14e4)
 		return -1;
-	
+
 	switch(p->did){
 	default:
 		return -1;
@@ -801,10 +801,10 @@ bcmpci(void)
 		if(ctlr == nil)
 			continue;
 		ctlr->type = type;
-		ctlr->port = p->mem[0].bar & ~0x0F;
+		ctlr->port = p->mem[0].bar & ~(uintmem)0xf;
 		mem = vmap(ctlr->port, p->mem[0].size);
 		if(mem == nil) {
-			print("bcm: can't map %#p\n", (uvlong)ctlr->port);
+			print("bcm: can't map %#P\n", ctlr->port);
 			free(ctlr);
 			continue;
 		}
@@ -813,9 +813,9 @@ bcmpci(void)
 		ctlr->status = mallocalign(20, 16, 0, 0);
 		ctlr->recvprod = mallocalign(32 * RxProdRingLen, 16, 0, 0);
 		ctlr->recvret = mallocalign(32 * RxRetRingLen, 16, 0, 0);
-		ctlr->sendr = mallocalign(16 * SendRingLen, 16, 0, 0);
-		ctlr->sends = malloc(sizeof *ctlr->sends * SendRingLen);
-		ctlr->rxs = malloc(sizeof *ctlr->sends * SendRingLen);
+		ctlr->sendr = mallocalign(16 * TxRingLen, 16, 0, 0);
+		ctlr->sends = malloc(sizeof *ctlr->sends * TxRingLen);
+		ctlr->rxs = malloc(sizeof *ctlr->sends * TxRingLen);
 		*xx = ctlr;
 		xx = &ctlr->next;
 	}
@@ -825,7 +825,7 @@ static void
 bcmpromiscuous(void* arg, int on)
 {
 	Ctlr *ctlr;
-	
+
 	ctlr = ((Ether*)arg)->ctlr;
 	if(on)
 		csr32(ctlr, RxMACMode) |= 1<<8;
@@ -848,7 +848,7 @@ bcmpnp(Ether* edev)
 		bcmpci();
 		done = 1;
 	}
-	
+
 redux:
 	for(ctlr = bcmhead; ; ctlr = ctlr->next) {
 		if(ctlr == nil)

@@ -272,13 +272,13 @@ scan(void)
 			print("%s: %T: too many controllers\n", cttab[type].name, p->tbdf);
 			continue;
 		}
-		mempa = p->mem[0].bar&~0xf;
+		mempa = p->mem[0].bar&~(uintmem)0xf;
 		mem = vmap(mempa, p->mem[0].size);
 		if(mem == 0){
 			print("%s: %T: cant map bar 0/reg\n", cttab[type].name, p->tbdf);
 			continue;
 		}
-		dbpa = p->mem[2].bar&~0xf;
+		dbpa = p->mem[2].bar&~(uintmem)0xf;
 		db = vmap(dbpa, p->mem[2].size);
 		if(db == 0){
 			print("%s: %T: cant map bar 2/db\n", cttab[type].name, p->tbdf);

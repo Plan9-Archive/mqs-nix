@@ -26,7 +26,7 @@ sipi(void)
 	 */
 	sipipa = mmuphysaddr(SIPIHANDLER);
 	if((sipipa & (4*KiB - 1)) || sipipa > (1*MiB - 2*4*KiB))
-		return;
+		panic("sipi: invalid sipipa");
 	sipiptr = UINT2PTR(SIPIHANDLER);
 	memmove(sipiptr, sipihandler, sizeof(sipihandler));
 	DBG("sipiptr %#p sipipa %#P\n", sipiptr, sipipa);
@@ -36,13 +36,12 @@ sipi(void)
 	 * The Universal Startup Algorithm described in the MP Spec. 1.4.
 	 * The data needed per-processor is the sum of the stack, page
 	 * table pages, vsvm page and the Mach page. The layout is similar
-	 * to that described in data.h for the bootstrap processor, but
+	 * to that described in dat.h for the bootstrap processor, but
 	 * with any unused space elided.
 	 */
 	nproc = 0;
 	for(apicno = 0; apicno < Napic; apicno++){
-		apic = &xlapic[apicno];
-		if(!apic->useable || apic->addr || apic->machno == 0)
+		if((apic = lapiclookup(apicno)) == nil || apic->addr != 0 || apic->machno == 0)
 			continue;
 		nproc++;
 		if(nproc == MACHMAX){
@@ -57,8 +56,7 @@ sipi(void)
 		 */
 		alloc = mallocalign(MACHSTKSZ+4*PTSZ+4*KiB+MACHSZ, 4096, 0, 0);
 		if(alloc == nil)
-			continue;
-		memset(alloc, 0, MACHSTKSZ+4*PTSZ+4*KiB+MACHSZ);
+			panic("sipi: no memory");
 		p = alloc+MACHSTKSZ;
 
 		sipiptr[-1] = mmuphysaddr(PTR2UINT(p));

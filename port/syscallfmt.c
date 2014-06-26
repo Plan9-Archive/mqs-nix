@@ -127,11 +127,12 @@ syscallfmt(int syscallno, va_list list)
 		a = va_arg(list, char*);
 		fmtuserstring(&fmt, a, "");
 		argv = va_arg(list, char**);
-		evenaddr(PTR2UINT(argv));
+		validalign(PTR2UINT(argv), char**);
 		for(;;){
 			a = *(char**)validaddr(argv, sizeof(char**), 0);
 			if(a == nil)
 				break;
+			validalign(PTR2UINT(argv), sizeof(char*));
 			fmtprint(&fmt, " ");
 			fmtuserstring(&fmt, a, "");
 			argv++;
@@ -181,7 +182,7 @@ syscallfmt(int syscallno, va_list list)
 	case FWSTAT:
 		i[0] = va_arg(list, int);
 		a = va_arg(list, char*);
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		fmtprint(&fmt, "%d %#p %lud", i[0], a, l);
 		break;
 	case NOTIFY:
@@ -198,7 +199,7 @@ syscallfmt(int syscallno, va_list list)
 	case SEGFREE:
 	case SEGFLUSH:
 		v = va_arg(list, void*);
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		fmtprint(&fmt, "%#p %lud", v, l);
 		break;
 	case UNMOUNT:
@@ -218,19 +219,6 @@ syscallfmt(int syscallno, va_list list)
 		l = va_arg(list, ulong);
 		fmtprint(&fmt, "%#p %ld", v, l);
 		break;
-/*
-	case SEMSLEEP:
-	case SEMWAKEUP:
-		v = va_arg(list, int*);
-		fmtprint(&fmt, "%#p", v);
-		break;
-	case SEMALT:
-		ip = va_arg(list, int**);
-		i[0] = va_arg(list, int);
-		validaddr(ip, sizeof(int*)*i[0], 0);
-		fmtprint(&fmt, "%#p %d", ip, i[0]);
-		break;
-*/
 	case SEEK:
 		v = va_arg(list, vlong*);
 		i[0] = va_arg(list, int);
@@ -244,7 +232,7 @@ syscallfmt(int syscallno, va_list list)
 		fmtprint(&fmt, "%d %d ", i[0], i[1]);
 		a = va_arg(list, char*);
 		fmtuserstring(&fmt, a, " ");
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		fmtprint(&fmt, "%lud", l);
 		break;
 	case WSTAT:
@@ -255,7 +243,7 @@ syscallfmt(int syscallno, va_list list)
 	case ERRSTR:
 	case AWAIT:
 		a = va_arg(list, char*);
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		fmtprint(&fmt, "%#p %lud", a, l);
 		break;
 	case MOUNT:
@@ -287,6 +275,10 @@ syscallfmt(int syscallno, va_list list)
 		fmtprint(&fmt, "%ld", l);
 		vl = va_arg(list, vlong);
 		fmtprint(&fmt, " %lld", vl);
+		break;
+	case _NSEC:
+		vl = va_arg(list, vlong);
+		fmtprint(&fmt, "%llud", vl);
 		break;
 	}
 	poperror();
@@ -347,7 +339,7 @@ sysretfmt(int syscallno, va_list list, Ar0* ar0, uvlong start, uvlong stop)
 		break;
 	case ERRSTR:
 		a = va_arg(list, char*);
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		if(ar0->i > 0){
 			fmtuserstring(&fmt, a, " ");
 			fmtprint(&fmt, "%lud = %d", l, ar0->i);
@@ -361,7 +353,7 @@ sysretfmt(int syscallno, va_list list, Ar0* ar0, uvlong start, uvlong stop)
 		i = va_arg(list, int);
 		USED(i);
 		a = va_arg(list, char*);
-		l = va_arg(list, unsigned long);
+		l = va_arg(list, ulong);
 		if(ar0->i > 0){
 			fmtuserstring(&fmt, a, " ");
 			fmtprint(&fmt, "%lud = %d", l, ar0->i);

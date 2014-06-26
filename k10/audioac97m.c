@@ -214,7 +214,7 @@ static long
 ac97mixread(Audio *adev, void *a, long n, vlong)
 {
 	Mixer *m = adev->mixer;
-	ulong caps;
+	u32int caps;
 
 	caps = m->rr(adev, Reset);
 	caps |= m->rr(adev, Extid) << 16;
@@ -225,7 +225,7 @@ static long
 ac97mixwrite(Audio *adev, void *a, long n, vlong)
 {
 	Mixer *m = adev->mixer;
-	ulong caps;
+	u32int caps;
 
 	caps = m->rr(adev, Reset);
 	caps |= m->rr(adev, Extid) << 16;

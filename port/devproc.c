@@ -1384,6 +1384,8 @@ procctlcloseone(Proc *p, Fgrp *f, int fd)
 {
 	Chan *c;
 
+	if(fd < 0 || fd >= f->maxfd)
+		return;
 	c = f->fd[fd];
 	if(c == nil)
 		return;
@@ -1553,7 +1555,12 @@ procctlreq(Proc *p, char *va, int n)
 		procstopwait(p, 0);
 		break;
 	case CMwired:
-		procwired(p, atoi(cb->f[1]));
+		if(strcmp(cb->f[1], "clear") == 0){
+			p->wired = nil;
+			p->mp = nil;
+		}
+		else
+			procwired(p, atoi(cb->f[1]));
 		break;
 	case CMtrace:
 		switch(cb->nf){

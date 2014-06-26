@@ -149,7 +149,7 @@ showlockloops(void)
 				break;
 			if(!g->shown){
 				g->shown = 0;
-				iprint("cpu%d: %d: l=%#p lpc=%#p pc=%#p n=%ud ok=%d\n",
+				iprint("mach%d: %d: l=%#p lpc=%#p pc=%#p n=%ud ok=%d\n",
 					machno, i, g->l, g->lpc, g->pc, g->n, g->ok);
 			}
 			p++;
@@ -172,7 +172,7 @@ lockcrash(Lock *l, uintptr pc, char *why)
 			dumpaproc(p);
 	}
 	showlockloops();
-	panic("cpu%d: %s lock %#p key %#p pc %#p proc %ud held by pc %#p proc %ud\n",
+	panic("mach%d: %s lock %#p key %#p pc %#p proc %ud held by pc %#p proc %ud\n",
 		m->machno, why, l, tqkey(l), pc, up->pid, l->pc, p? p->pid: 0);
 }
 
@@ -229,7 +229,7 @@ lockloop(Glaring *og, Lock *l, uintptr pc)
 	mg->total++;
 	splx(s);
 	if(islo() && up != nil)
-		print("cpu%d: pid %d slow locks: %d\n", m->machno, up->pid, glares[m->machno].total);
+		print("mach%d: pid %d slow locks: %d\n", m->machno, up->pid, glares[m->machno].total);
 	if(lockdebug)
 		lockcrash(l, pc, "stuck");
 	return g;

@@ -247,7 +247,7 @@ us2fastticks(uvlong us)
  *  convert milliseconds to fast ticks
  */
 uvlong
-ms2fastticks(ulong ms)
+ms2fastticks(uint ms)
 {
 	if(!tod.init)
 		todinit();

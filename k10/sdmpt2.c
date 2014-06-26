@@ -12,6 +12,8 @@
 #include "../port/error.h"
 
 #include "../port/sd.h"
+#include <fis.h>
+#include "../port/sdfis.h"
 
 #define B2W(x)		((x) / BIT32SZ)
 #define W2B(x)		((x) * BIT32SZ)
@@ -106,7 +108,9 @@ enum {
 	EventAck			= 0x08,
 	ScsiIoRequest			= 0x00,
 	ScsiTaskManagement		= 0x01,
+	ScsiEnclosureProcessor		= 0x18,
 	SasIoUnitControl		= 0x1b,
+	SataPassthrough			= 0x1c,
 	Config				= 0x04,
 };
 
@@ -139,7 +143,9 @@ enum {
 };
 
 enum {
-	Nunit		= 16,
+	Nenclosure	= 1,
+	Nunitperenc	= 20,
+	Nunit		= Nenclosure * Nunitperenc,	/* should limit to 16 but i have more */
 
 	Offline		= 0,
 	Online,
@@ -147,12 +153,18 @@ enum {
 
 typedef struct Unit Unit;
 struct Unit {
+	Sfisx;
+
 	int		state;
 	u16int		devh;
 	uchar		link;
 	u32int		info;
 	u16int		flags;
-	uchar		wwn[8];
+	u64int		wwn;
+
+	int		slot;
+	uint		exph;
+	uint		ench;
 };
 
 typedef struct Req Req;
@@ -188,22 +200,26 @@ struct Ctlr {
 	Req		*reqfree;
 	Lock		reqfreelock;
 	Lock		reqpostlock;
-	ushort		reqcredit;
-	ushort		iocreqfsz;
-	ushort		reqfsz;
+	u16int		reqcredit;
+	u16int		iocreqfsz;
+	u16int		reqfsz;
 
 	u32int		*reply;
 	u32int		*replyfree;
 	u32int		*replypost;
 	uchar		replyfsz;
-	ushort		replyq;
-	ushort		replyfreeq;
-	ushort		replypostq;
-	ushort		replypostmax;
-	ulong		replyfreep;
-	ulong		replypostp;
+	u16int		replyq;
+	u16int		replyfreeq;
+	u16int		replypostq;
+	u16int		replypostmax;
+	u32int		replyfreep;
+	u32int		replypostp;
+
+	char		allphysenc;
+	char		direct;
 
 	Queue		*eventq;
+	void		*vector;
 };
 
 static u32int
@@ -272,6 +288,15 @@ ckstatus(Ctlr *ctlr, u32int *reply)
 	 */
 	switch(reply[0]>>24){			/* Function */
 	case ScsiIoRequest:
+	case SataPassthrough:
+		switch(status){
+		case 0x0003:	/* INVALID_SGL (user command with r/w bits mixed up) */
+		case 0x0045:	/* SCSI_DATA_UNDERRUN */
+		case 0x0046:	/* SCSI_IO_DATA_ERROR */
+		case 0x0047:	/* SCSI_PROTOCOL_ERROR */
+			return 0;
+		}
+		break;
 	case ScsiTaskManagement:
 		switch(status){
 		case 0x0040:	/* SCSI_RECOVERED_ERROR */
@@ -301,7 +326,8 @@ ckstatus(Ctlr *ctlr, u32int *reply)
 		}
 		break;
 	}
-	panic("ckstatus: %s: bad status 0x%04ux", ctlr->name, status);
+	panic("ckstatus: %s: fn %.2ux, bad status %#.04ux",
+		ctlr->name, reply[0]>>24, status);
 	return -1;	/* not reached */
 }
 
@@ -597,16 +623,23 @@ iocinit(Ctlr *ctlr)
 	buf[6] = ctlr->reqfsz<<16;		/* SystemRequestFrameSize */
 	buf[7] = ctlr->replyfreeq<<16;		/* ReplyFreeQueueDepth */
 	buf[7] |= ctlr->replypostq;		/* ReplyDescriptorPostQueueDepth */
-	buf[10] = PCIWADDR(ctlr->req);		/* SystemRequestFrameBaseAddress */
-	buf[12] = PCIWADDR(ctlr->replypost);	/* ReplyDescriptorPostQueueAddress */
-	buf[14] = PCIWADDR(ctlr->replyfree);	/* ReplyFreeQueueAddress */
+	buf[10] = Pciwaddrl(ctlr->req);		/* SystemRequestFrameBaseAddress */
+	buf[11] = Pciwaddrh(ctlr->req);
+	buf[12] = Pciwaddrl(ctlr->replypost);	/* ReplyDescriptorPostQueueAddress */
+	buf[13] = Pciwaddrh(ctlr->replypost);
+	buf[14] = Pciwaddrl(ctlr->replyfree);	/* ReplyFreeQueueAddress */
+	buf[15] = Pciwaddrh(ctlr->replyfree);
 
 	doorbell(ctlr, buf, 18);
 	ckstatus(ctlr, buf);
 	ckstate(ctlr, StateOperational);
 }
 
-#define EVENT(x)	(1U<<((x) % 32))
+static void
+event(u32int *buf, u32int event)
+{
+	buf[event/32] &= ~(1 << event%32);
+}
 
 static void
 eventnotify(Ctlr *ctlr)
@@ -623,11 +656,9 @@ eventnotify(Ctlr *ctlr)
 	 * host mapping, however the SAS_TOPOLOGY_CHANGE_LIST
 	 * event is merely sufficient.
 	 */
-	buf[5] = ~EVENT(SasTopologyChangeList);
-	buf[6] = ~0;
-	buf[7] = ~0;
-	buf[8] = ~0;
-	buf[9] = ~0;
+	memset(buf+5, 0xff, 4*4);
+	event(buf+5, SasTopologyChangeList);
+	event(buf+5, SasEnclDeviceStatusChange);
 
 	doorbell(ctlr, buf, 11);
 	ckstatus(ctlr, buf);
@@ -677,10 +708,66 @@ portenable(Ctlr *ctlr)
 	freereq(ctlr, r);
 }
 
-static void
-unitconfig(Ctlr *ctlr, Unit *u)
+enum {
+	/* page types */
+	IO_UNIT_PAGE		= 0x0,
+	IOC_PAGE		= 0x1,
+	BIOS_PAGE		= 0x2,
+	RAID_VOL_PAGE	= 0x8,
+	MFG_PAGE		= 0x9,
+	RAID_DISK_PAGE	= 0xa,
+	EXT_PAGE		= 0xf,
+
+	/* extended page types */
+	SAS_IO_UNIT		= 0x10,
+	SAS_EXPANDER	= 0x11,
+	SAS_DEVICE		= 0x12,
+	SAS_PHY		= 0x13,
+	LOG			= 0x14,
+	ENCLOSURE		= 0x15,
+	RAID_CONFIG		= 0x16,
+	DRIVER_MAPPING	= 0x17,
+	SAS_PORT		= 0x18,
+	ETHERNET		= 0x19,
+	EXT_MFG		= 0x1a,
+};
+
+static int
+getpage(Ctlr *ctlr, uint devh, int ptype, int exptype, int pnum, u32int *page, int npage)
 {
-	u32int buf[7+2], page[14];
+	u32int buf[7+2];
+
+	memset(buf, 0, W2B(7));
+	buf[0] = Config<<24;			/* Function */
+	buf[0] |= 0x00;				/* Action (PAGE_HEADER) */
+	buf[1] = exptype<<16;			/* ExtPageType */
+	buf[5] = ptype<<24;			/* PageType (Extended) */
+	buf[5] |= pnum<<16;			/* PageNumber */
+	mksge32(buf+7, nil, 0, 0);			/* PageBufferSGE (empty) */
+
+	doorbell(ctlr, buf, 7+2);
+	ckstatus(ctlr, buf);
+
+	buf[0] |= 0x01;				/* Action (READ_CURRENT) */
+	buf[6] = 0x2<<28 | devh;			/* PageAddress (HANDLE) */
+	mksge32(buf+7, page, npage, 0);		/* PageBufferSGE */
+
+	doorbell(ctlr, buf, 7+2);
+	if(!ckstatus(ctlr, buf))
+		return -1;
+	return 0;
+}
+
+static int
+devpage(Ctlr *ctlr, uint devh, u32int page[14])
+{
+	return getpage(ctlr, devh, EXT_PAGE, SAS_DEVICE, 0, page, 4*14);
+}
+
+static int
+·devpage(Ctlr *ctlr, uint devh, u32int page[14])
+{
+	u32int buf[7+2];
 
 	/*
 	 * Unit configuration is pulled from SAS Device Page 0.
@@ -689,6 +776,8 @@ unitconfig(Ctlr *ctlr, Unit *u)
 	 * via the System Doorbell to simplify access to the page
 	 * header.
 	 */
+	getpage(ctlr, devh, EXT_PAGE, SAS_DEVICE, 0, buf, sizeof buf);
+
 	memset(buf, 0, W2B(7));
 	buf[0] = Config<<24;			/* Function */
 	buf[0] |= 0x00;				/* Action (PAGE_HEADER) */
@@ -701,16 +790,28 @@ unitconfig(Ctlr *ctlr, Unit *u)
 	ckstatus(ctlr, buf);
 
 	buf[0] |= 0x01;				/* Action (READ_CURRENT) */
-	buf[6] = 0x2<<28 | u->devh;		/* PageAddress (HANDLE) */
-	mksge32(buf+7, page, sizeof page, 0);	/* PageBufferSGE */
+	buf[6] = 0x2<<28 | devh;		/* PageAddress (HANDLE) */
+	mksge32(buf+7, page, 14*4, 0);		/* PageBufferSGE */
 
 	doorbell(ctlr, buf, 7+2);
 	if(!ckstatus(ctlr, buf))
-		error(Ebadunit);
+		return -1;
+	return 0;
+}
 
+static void
+unitconfig(Ctlr *ctlr, Unit *u, uint devh)
+{
+	u32int page[14];
+
+	if(devpage(ctlr, devh, page) == -1)
+		error(Ebadunit);
+	u->devh = devh;
 	u->info = page[7];			/* DeviceInfo */
 	u->flags = page[8] & 0xffff;		/* Flags */
-	memmove(u->wwn, page+9, 8);		/* DeviceName */
+	u->wwn = getle((uchar*)(page+9), 8);
+	u->slot = page[2] & 0xffff;
+//	print("parent devh %ux phyno %d physport %d\n", page[5]&0xffff, page[5]>>16 & 0xff, page[8]>>24&0xff);
 }
 
 static void
@@ -820,6 +921,81 @@ scsiio(Ctlr *ctlr, Unit *u, SDreq *sdreq)
 		postio(ctlr, r, desc, 10*1000);
 		poperror();
 	}
+	freereq(ctlr, r);
+}
+
+static int
+fisreqchk(Sfis *f, SDreq *r)
+{
+	uchar *c;
+
+	if((r->ataproto & Pprotom) == Ppkt)
+		return SDnostatus;
+	if(r->clen != 16)
+		error("bad command length");
+	c = r->cmd;
+	if(c[0] == 0xf0){
+		sigtofis(f, r->cmd);
+		return r->status = SDok;
+	}
+//	c[0] = H2dev;
+//	c[1] = Fiscmd;
+//	c[7] |= Ataobs;
+	return SDnostatus;
+}
+
+static void
+ataio(Ctlr *ctlr, Unit *u, SDreq *sdreq)
+{
+	Req *r;
+	int ms;
+	u32int desc[2];
+
+print("ataio %.2ux %.2ux %.2ux %.2ux clen=%d\n", sdreq->cmd[0], sdreq->cmd[1], sdreq->cmd[2], sdreq->cmd[3],
+	sdreq->clen);
+	if((sdreq->status = fisreqchk(u, sdreq)) != SDnostatus)
+		return; /* sdreq->status;*/
+
+	/*
+	 * SATA passthrough is supported for PIO protocol ATA commands
+	 * such as IDENTIFY DEVICE.  Only Register Host to Device
+	 * and Register Device to Host command FISes are supported.
+	 */
+	r = nextreq(ctlr);
+	if (r == nil) {
+		sdreq->status = SDbusy;
+		return;
+	}
+	r->sdreq = sdreq;
+	memset(r->req, 0, W2B(12));
+	r->req[0] = SataPassthrough<<24;	/* Function */
+	r->req[0] |= u->devh;			/* DevHandle */
+	r->req[1] = 1<<4;			/* PIO */
+	if (sdreq->write)
+		r->req[1] |= 1<<1;		/* WRITE */
+	else
+		r->req[1] |= 1<<0;		/* READ */
+	r->req[6] = sdreq->dlen;			/* DataLength */
+	memmove(r->req+7, sdreq->cmd, sdreq->clen);
+	mksge32(r->req+12, sdreq->data, sdreq->dlen, sdreq->write);
+
+	desc[0] = r->smid<<16 | 0x4<<1;		/* Default Request */
+	desc[1] = 0;
+
+	/*
+	 * Pernicious hack to ensure certain commands are
+	 * able to run to completion.
+	 */
+	switch (sdreq->cmd[2]) {
+	case 0x92:	/* DOWNLOAD MICROCODE */
+	case 0xf4:	/* SECURITY ERASE */
+	case 0xf5:	/* SECURITY FREEZE LOCK */
+		ms = 180*1000;
+		break;
+	default:
+		ms = 10*1000;
+	}
+	postio(ctlr, r, desc, ms);
 	freereq(ctlr, r);
 }
 
@@ -949,23 +1125,65 @@ doreply(Ctlr *ctlr, u16int smid, u32int *reply)
 	wakeup(r);
 }
 
+/*
+ * temporary hack
+ */
+static int
+port2unit(Ctlr *ctlr, uint devh, uint /*exph*/, uint ench)
+{
+	int unitidx, encidx;
+	u32int slot, page[14];
+
+	/* hack: ignore direct ports when all phys externally mapped */
+	if(ctlr->allphysenc && ctlr->direct == -1)
+		encidx = ench - 2;
+	else
+		encidx = ench - 1;
+	if(encidx < 0 || encidx >= Nenclosure)
+		return -1;
+
+	if(devpage(ctlr, devh, page) == -1)
+		return -1;
+	slot = page[2] & 0xffff;
+	if(slot >= Nunitperenc)
+		return -1;
+	unitidx = encidx*Nunitperenc + slot;
+
+	if(unitidx >= Nunit)
+		return -1;
+
+	return unitidx;
+}
+
+/* sleeze; try to detect when no direct connect */
+static int
+anyconnected(u32int *data, int e)
+{
+	int i;
+	u32int *p, reason;
+
+	for(i = 0; i < e; i++){
+		p = data + i;
+		reason = *p>>24 & 0xf;
+		if(reason == 1 || reason == 2)
+			return 1;
+	}
+	return 0;
+}
+
 static void
 topoevent(Ctlr *ctlr, u32int *data)
 {
-	u32int *p, *e;
-	int i;
+	u32int *p;
+	int i, b, e, rate, reason, devh, unitno, exph, ench, num, start;
 	Unit *u;
 
-	/*
-	 * Unfortunately, devsd limits us to 16 devices, which
-	 * essentially precludes support for SAS expanders and/or
-	 * enclosures.  A one-to-one mapping exists between a
-	 * direct attached PHY and a device for simplicity.
-	 */
-	if(data[0]>>16 != 0x0)			/* ExpanderDevHandle */
-		return;
-	if((data[0] & 0xffff) != 0x1)		/* EnclosureHandle */
-		return;
+	exph = data[0] >> 16;
+	ench = data[0] & 0xffff;
+	start = data[2]>>8 & 0xff;
+	num = data[2]>>0 & 0xff;
+	print("%s: topoevent exp/enc %d/%d port %d-%d #phys %d\n", ctlr->name, 
+		exph, ench, start, start+num, data[1]);
 
 	/*
 	 * SAS topology changes are handled in two phases;  we
@@ -973,25 +1191,80 @@ topoevent(Ctlr *ctlr, u32int *data)
 	 * New units require additional configuration information
 	 * and missing units must have resources released.
 	 */
-	p = data + 3;
-	e = p + (data[2] & 0xff);		/* NumEntries */
-	i = data[2]>>8 & 0xff;			/* StartPhyNum */
-	for(; p < e && i < Nunit; ++p, ++i){
-		u = UNIT(ctlr, i);
-		switch(*p>>24 & 0xf){		/* PhyStatus (Reason Code) */
-		case 0x1:
-			u->devh = *p & 0xffff;	/* AttachedDevHandle */
-			unitconfig(ctlr, u);
+	b = data[2]>>8 & 0xff;
+	e = data[2] & 0xff;			/* NumEntries */
+
+	if(exph == 0 && ench == 1){
+		if(!anyconnected(data + 3, e)){
+			if(ctlr->direct == 0)
+				ctlr->direct = -1;
+			return;
+		}
+		if(ctlr->direct == 0)
+			ctlr->direct = 1;
+	}
+
+	for(i = 0; i < e; i++){
+		p = data + 3 + i;
+		rate = p[0]>>16 & 0xff;
+		devh = p[0] & 0xffff;
+		reason = *p>>24 & 0xf;
+		if(devh == 1 || devh == 0)
+			continue;		/* ignore self; empty */
+		unitno = port2unit(ctlr, devh, exph, ench);
+		if(unitno == -1 || unitno >= ctlr->sdev->nunit){
+			print("   entry %d exph %d ench %d unitno %d\n", i, exph, ench, unitno);
+			continue;
+		}
+		u = UNIT(ctlr, unitno);
+		switch(reason){		/* PhyStatus (Reason Code) */
+		case 1:			/* online */
+			unitconfig(ctlr, u, devh);
+			u->exph = exph;
+			u->ench = ench;
+			print("unit %d→%d slot %d:%d devh %.4ux  rate %x stat %x online wwn %llux\n",
+				i+b, unitno, ench, u->slot, devh, rate, *p>>28, u->wwn);
 			u->state = Online;
 			break;
-		case 0x2:
+		case 2:			/* offline */
+			print("unit %d devh %.4ux  rate %x offline\n", i+b, devh, rate);
 			u->state = Offline;
 			unitreset(ctlr, u);
 			unitremove(ctlr, u);
 			break;
+		default:
+			print("unit %d devh %.4ux  rate %x ?? = %d\n", i+b, devh, rate, rate);
+			break;
 		}
-		u->link = *p>>16 & 0xff;	/* LinkRate */
+		u->link = rate;	/* LinkRate */
 	}
+}
+
+static void
+encevent(Ctlr *ctlr, u32int *data)
+{
+	char *reason;
+	int s, n, phymap;
+
+	phymap = data[4];
+	switch(data[0]>>16 & 0xff){
+	default:
+		reason = "*gok*";
+		break;
+	case 1:
+		/* hack: assume 8 phys */
+		if(phymap == 0xff)
+			ctlr->allphysenc++;
+		reason = "added";
+		break;
+	case 2:
+		reason = "gone";
+		break;
+	}
+	s = data[3] >> 16;
+	n = data[3] & 0xffff;
+	print("mpt2: enc %d %s: port %d wwn %llux slots %d-%d phy %b\n", data[0]>>0 & 0xffff, reason,
+		data[0]>>24, (uvlong)data[2]<<32 | data[1], s, s+n, phymap);
 }
 
 static void
@@ -1008,8 +1281,12 @@ doevent(Ctlr *ctlr, u32int *reply)
 	case SasTopologyChangeList:
 		topoevent(ctlr, data);
 		break;
+	case SasEnclDeviceStatusChange:
+		encevent(ctlr, data);
+		break;
 	default:
-		panic("doevent: %s: bad event 0x%04ux", ctlr->name, event);
+		print("sdmpt2: doevent: %s: bad event %#.4ux", ctlr->name, event);
+		break;
 	}
 	if(reply[1]>>16 & 0xff)			/* AckRequired */
 		eventack(ctlr, event, context);
@@ -1031,6 +1308,29 @@ qevent(Ctlr *ctlr, u32int *reply)
 }
 
 static void
+satareply(Ctlr *ctlr, u16int smid, u32int *reply)
+{
+	Req *r;
+	SDreq *sr;
+
+	r = REQ(ctlr, smid);
+	sr = r->sdreq;
+	if(ckstatus(ctlr, reply) == 1){
+		if ((reply[3]>>8 & 0xff) == 0x00)	/* SASStatus (SUCCESS) */
+			sr->status = SDok;
+		else
+			sr->status = SDretry;
+		memmove(sr->data, reply+5, W2B(5));	/* StatusFIS */
+		sr->rlen = W2B(5);
+		sr->dlen = reply[11];		/* TransferCount */
+	} else
+		sr->status = SDretry;
+
+	r->done++;
+	wakeup(r);
+}
+
+static void
 addressreply(Ctlr *ctlr, u16int smid, u32int *reply)
 {
 	uchar fn;
@@ -1041,6 +1341,9 @@ addressreply(Ctlr *ctlr, u16int smid, u32int *reply)
 	case ScsiTaskManagement:
 	case SasIoUnitControl:
 		doreply(ctlr, smid, reply);
+		break;
+	case SataPassthrough:
+		satareply(ctlr, smid, reply);
 		break;
 	case ScsiIoRequest:
 		/*
@@ -1058,7 +1361,7 @@ addressreply(Ctlr *ctlr, u16int smid, u32int *reply)
 		qevent(ctlr, reply);
 		break;
 	default:
-		panic("addressreply: %s: bad function 0x%02ux", ctlr->name, fn);
+		panic("addressreply: %s: bad function %#.02ux", ctlr->name, fn);
 	}
 
 	/*
@@ -1211,18 +1514,38 @@ disablectlr(Ctlr *ctlr)
 	iocwrite(ctlr, HostInterruptMask, val);
 }
 
+static int
+ctlrunits(Ctlr *ctlr)
+{
+	char *s;
+	int units, n;
+
+	/* start with 1:1 direct mapping */
+	units = ctlr->numports;
+
+	/* manually configured expander? */
+	if((s = getconf("*mpt2expander")) != nil)
+	if((n = atoi(s)) > 0)
+		units = n;
+
+	/* autodetected expander? (guess based on a single port) */
+	if(units == 1 || units > Nunit)
+		units = Nunit;
+
+	return units;
+}
+
 static SDev *
 mpt2pnp(void)
 {
 	Pcidev *p;
-	SDev *sdev, *head, *tail;
+	SDev *sdev;
 	int ioc;
 	char name[8];
 	Ctlr *ctlr;
 	static int iocs;
 
 	p = nil;
-	head = tail = nil;
 	while(p = pcimatch(p, 0x1000, 0)){
 		switch(p->did){
 		case 0x0070:	/* LSISAS2004 */
@@ -1281,18 +1604,14 @@ mpt2pnp(void)
 		}
 		sdev->ifc = &sdmpt2ifc;
 		sdev->ctlr = ctlr;
-		sdev->idno = 'M' + ioc;
-		sdev->nunit = Nunit;
+		sdev->idno = 'M';
+		sdev->nunit = ctlrunits(ctlr);
 		ctlr->sdev = sdev;
-		print("#S/sd%c: %s: mpt2 sas-2 with %d ports, %d max targets\n",
-		    sdev->idno, name, ctlr->numports, ctlr->maxtargs);
-		if(head == nil)
-			head = sdev;
-		else
-			tail->next = sdev;
-		tail = sdev;
+		sdadddevs(sdev);
+		print("#S/%s: %s: mpt2 sas-2 with %d ports, %d max targets\n",
+		    sdev->name, name, ctlr->numports, ctlr->maxtargs);
 	}
-	return head;
+	return nil;
 }
 
 static void
@@ -1407,6 +1726,14 @@ mpt2event(void *arg)
 	}
 }
 
+/* hotpluggable.  report all the ports (or slots) we've got */
+static int
+mpt2verify(SDunit*)
+{
+//	scsiverify(u);
+	return 1;
+}
+
 static int
 mpt2enable(SDev *sdev)
 {
@@ -1440,20 +1767,13 @@ static int
 mpt2disable(SDev *sdev)
 {
 	Ctlr *ctlr;
-	Pcidev *p;
-	char name[32];
 
 	ctlr = sdev->ctlr;
-	p = ctlr->pcidev;
 	ilock(ctlr);
 	disablectlr(ctlr);
 	iunlock(ctlr);
 
-	snprint(name, sizeof name, "%s (%s)", sdev->name, sdev->ifc->name);
-
-//	must fix intrdisable
-//	intrdisable(p->intl, mpt2interrupt, ctlr, p->tbdf, name);
-	USED(p);
+	intrdisable(ctlr->vector);
 	return 1;
 }
 
@@ -1484,6 +1804,32 @@ mpt2rio(SDreq *sdreq)
 }
 
 static int
+mpt2ataio(SDreq *sdreq)
+{
+	Ctlr *ctlr;
+	Unit *u;
+
+	ctlr = sdreq->unit->dev->ctlr;
+	u = UNIT(ctlr, sdreq->unit->subno);
+	rlock(&ctlr->resetlock);
+	if(waserror()){
+		runlock(&ctlr->resetlock);
+		return SDeio;
+	}
+	if(u->state != Online)
+		error(Ebadunit);
+	if(waserror()){
+		wakeup(&ctlr->reset);
+		nexterror();
+	}
+	ataio(ctlr, u, sdreq);
+	poperror();
+	poperror();
+	runlock(&ctlr->resetlock);
+	return sdreq->status;
+}
+
+static int
 mpt2rctl(SDunit *unit, char *p, int l)
 {
 	Ctlr *ctlr;
@@ -1499,12 +1845,14 @@ mpt2rctl(SDunit *unit, char *p, int l)
 	u = UNIT(ctlr, unit->subno);
 	getunitcaps(u, buf, sizeof buf);
 	p = seprint(p, e, "capabilities %s\n", buf);
-	p = seprint(p, e, "wwn %llux\n", GBIT64(u->wwn));
+	p = seprint(p, e, "wwn %.16llux\n", u->wwn);
 	p = seprint(p, e, "type %s\n", unittype(u));
 	p = seprint(p, e, "link %s\n", unitlink(u));
 	p = seprint(p, e, "state %s\n", unitstate(u));
-	p = seprint(p, e, "geometry %llud %lud\n",
+	p = seprint(p, e, "geometry %llud %ud\n",
 	    unit->sectors, unit->secsize);
+	p = seprint(p, e, "slot %d:%d\n", u->ench, u->slot);
+
 	return p - o;
 }
 
@@ -1518,6 +1866,41 @@ mpt2rtopctl(SDev *sdev, char *p, char *e)
 	    sdev->name, ctlr->name, ctlr->port, ctlr->pcidev->intl);
 }
 
+static int
+mpt2online(SDunit *unit)
+{
+	int r;
+	Ctlr *ctlr;
+	Unit *u;
+
+	ctlr = unit->dev->ctlr;
+	u = ctlr->unit + unit->subno;
+
+	/* short circuit if state has not changed */
+	if(u->state == Online ^ unit->sectors == 0)
+		return 1;
+	u->drivechange = 0;
+	r = scsionlinex(unit, u) == SDok;
+	if(r){
+		unit->sectors = u->sectors;
+		unit->secsize = u->secsize;
+	}
+	return r;
+}
+
+static long
+mpt2bio(SDunit *unit, int lun, int write, void *data, long count, uvlong lba)
+{
+	Ctlr *ctlr;
+	Unit *u;
+
+	ctlr = unit->dev->ctlr;
+	u = ctlr->unit + unit->subno;
+//	if(u->feat & Datapi || u->type == Sas)
+		return scsibiox(unit, u, lun, write, data, count, lba);
+//	return atabio(unit, u, lun, write, data, count, lba);
+}
+
 SDifc sdmpt2ifc = {
 	"mpt2",				/* name */
 
@@ -1526,15 +1909,16 @@ SDifc sdmpt2ifc = {
 	mpt2enable,			/* enable */
 	mpt2disable,			/* disable */
 
-	scsiverify,			/* verify */
-	scsionline,			/* online */
+	mpt2verify,			/* verify */
+	mpt2online,			/* online */
 	mpt2rio,			/* rio */
 	mpt2rctl,			/* rctl */
 	nil,				/* wctl */
 
-	scsibio,			/* bio */
+	mpt2bio,			/* bio */
 	nil,				/* probe */
 	nil,				/* clear */
 	mpt2rtopctl,			/* rtopctl */
 	nil,				/* wtopctl */
+	mpt2ataio,			/* ataio */
 };

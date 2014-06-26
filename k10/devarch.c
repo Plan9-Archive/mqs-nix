@@ -11,7 +11,7 @@ typedef struct IOMap IOMap;
 struct IOMap
 {
 	IOMap	*next;
-	char	tag[13];
+	char	tag[16+1];
 	uint	start;
 	uint	end;
 };
@@ -285,7 +285,7 @@ archread(Chan *c, void *a, long n, vlong offset)
 		for(map = iomap.map; n > 0 && map != nil; map = map->next){
 			if(offset-- > 0)
 				continue;
-			sprint(p, "%#8ux %#8ux %-12.12s\n", map->start, map->end-1, map->tag);
+			sprint(p, "%#8ux %#8ux %-16.16s\n", map->start, map->end-1, map->tag);
 			p += Linelen;
 			n--;
 		}
@@ -309,7 +309,7 @@ archwrite(Chan *c, void *a, long n, vlong offset)
 	u32int *lp;
 	Rdwrfn *fn;
 
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 
 	case Qiob:
 		p = a;
@@ -376,10 +376,68 @@ cputyperead(Chan*, void *a, long n, vlong off)
 	return readstr(off, a, n, buf);
 }
 
+static long
+archcfgread(Chan*, void *a, long n, vlong off)
+{
+	char buf[512], *p, *e;
+
+	p = buf;
+	e = buf+sizeof buf;
+
+	/* builtin devices may be missing. */
+	p = seprint(p, e, "legacy	%d\n", !sys->nolegacyprobe);
+	p = seprint(p, e, "i8042kbd	%d\n", !sys->noi8042kbd);
+	p = seprint(p, e, "vga	%d\n", !sys->novga);
+	p = seprint(p, e, "msi	%d\n", !sys->nomsi);
+	p = seprint(p, e, "msi-x	%d\n", !sys->nomsix);
+	p = seprint(p, e, "cmos	%d\n", !sys->nocmos);
+
+	p = seprint(p, e, "monitor	%d\n", sys->monitor);
+
+	USED(p);
+
+	return readstr(off, a, n, buf);
+}
+
+/* need to catch #GP */
+static long
+msrread(Chan*, void *a, long n, vlong o)
+{
+	char buf[32];
+	u32int msr;
+	uvlong v;
+
+	if(o != (uint)o)
+		error(Egreg);
+	msr = (uint)o;
+	v = rdmsr(msr);
+	snprint(buf, sizeof buf, "%#.16llux\n", v);
+	return readstr(0, a, n, buf);
+}
+
+static long
+msrwrite(Chan*, void *a, long n, vlong o)
+{
+	char buf[32];
+	u32int msr;
+	uvlong v;
+
+	if(o != (uint)o || n > 31)
+		error(Egreg);
+	memmove(buf, a, n);
+	buf[n] = 0;
+	v = strtoull(buf, nil, 0);
+	msr = (uint)o;
+	wrmsr(msr, v);
+	return n;
+}
+
 void
 archinit(void)
 {
 	addarchfile("cputype", 0444, cputyperead, nil);
+	addarchfile("archcfg", 0444, archcfgread, nil);
+	addarchfile("msr", 0664, msrread, msrwrite);
 }
 
 void
@@ -388,12 +446,9 @@ archreset(void)
 	int i;
 
 	/*
-	 * And sometimes there is no keyboard...
-	 *
-	 * The reset register (0xcf9) is usually in one of the bridge
-	 * chips. The actual location and sequence could be extracted from
-	 * ACPI but why bother, this is the end of the line anyway.
-	print("Takes a licking and keeps on ticking...\n");
+	 * The reset register (0xcf9) is usually in one of the bridge chips.
+	 * The actual location and sequence could be extracted from
+	 * ACPI.
 	 */
 	i = inb(0xcf9);					/* ICHx reset control */
 	i &= 0x06;
@@ -401,8 +456,7 @@ archreset(void)
 	delay(1);
 	outb(0xcf9, i|0x06);				/* RST_CPU transition */
 
-	for(;;)
-		;
+	ndnr();
 }
 
 /*

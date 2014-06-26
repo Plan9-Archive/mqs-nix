@@ -21,7 +21,7 @@ mcslock(Lock *lk, LockEntry *ql)
 		ql->locked = 1;
 		sfence();	/* ensure reader sees updated value */
 		pred->next = ql;
-		while(monmwait32(&ql->locked, 1) == 1)
+		while(monmwait(&ql->locked, 1) == 1)
 			{}
 	}
 }
@@ -146,14 +146,14 @@ void
 ilock(Lock *l)
 {
 	uintptr pc;
-	Mreg s;
+	Mpl pl;
 	LockEntry *ql;
 
 	pc = getcallerpc(&l);
-	s = splhi();
+	pl = splhi();
 	ql = allocle(l, pc);
 	ql->isilock = 1;
-	ql->sr = s;
+	ql->pl = pl;
 	/* the old taslock code would splx(s) to allow interrupts while waiting (if not nested) */
 	mcslock(l, ql);
 	l->e = ql;
@@ -166,7 +166,7 @@ ilock(Lock *l)
 void
 iunlock(Lock *l)
 {
-	Mreg s;
+	Mpl pl;
 	LockEntry *ql;
 
 	if(islo())
@@ -175,16 +175,16 @@ iunlock(Lock *l)
 	if(!ql->isilock)
 		panic("iunlock of lock: pc %#p\n", getcallerpc(&l));
 	if(ql->m != m){
-		panic("iunlock by cpu%d, locked by cpu%d: pc %#p\n",
+		panic("iunlock by mach%d, locked by mach%d: pc %#p\n",
 			m->machno, ql->m->machno, getcallerpc(&l));
 	}
 	mcsunlock(l, ql);
-	s = ql->sr;
+	pl = ql->pl;
 	ql->used = nil;
 	m->ilockdepth--;
 	if(up != nil)
 		up->lastilock = nil;
-	splx(s);
+	splx(pl);
 }
 
 int

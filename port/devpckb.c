@@ -59,7 +59,7 @@ struct K {
 	int	lastc;
 	int	collecting;
 	int	nk;
-	Rune	kc[5];
+	Rune	kc[7];			/* strlen("x10ffff") */
 	int	buttons;
 	void	(*msg)(char*);
 };
@@ -248,6 +248,9 @@ kbdputsc(int c, Kbscan *kbscan)
 
 	keyup = c & 0x80;
 	c &= 0x7f;
+
+	if(!keyup)
+		drawactive(1);
 
 	if(kbscan->esc1){
 		c = kbtabesc1[c];
@@ -493,32 +496,32 @@ enum {
 	Qkbmap,
 };
 
-Dirtab kbintab[] = {
+Dirtab pckbtab[] = {
 	".",	{Qdir, 0, QTDIR},	0,	0555,
 	"kbin",	{Qkbin, 0},		0,	0600,
 	"kbmap",	{Qkbmap, 0},		0,	0600,
 };
 
 static Chan *
-kbinattach(char *spec)
+pckbattach(char *spec)
 {
 	return devattach(L'Ι', spec);
 }
 
 static Walkqid*
-kbinwalk(Chan *c, Chan *nc, char **name, int nname)
+pckbwalk(Chan *c, Chan *nc, char **name, int nname)
 {
-	return devwalk(c, nc, name, nname, kbintab, nelem(kbintab), devgen);
+	return devwalk(c, nc, name, nname, pckbtab, nelem(pckbtab), devgen);
 }
 
 static long
-kbinstat(Chan *c, uchar *dp, long n)
+pckbstat(Chan *c, uchar *dp, long n)
 {
-	return devstat(c, dp, n, kbintab, nelem(kbintab), devgen);
+	return devstat(c, dp, n, pckbtab, nelem(pckbtab), devgen);
 }
 
 static Chan*
-kbinopen(Chan *c, int omode)
+pckbopen(Chan *c, int omode)
 {
 	if(!iseve())
 		error(Eperm);
@@ -532,11 +535,11 @@ kbinopen(Chan *c, int omode)
 		c->aux = nil;
 		break;
 	}
-	return devopen(c, omode, kbintab, nelem(kbintab), devgen);
+	return devopen(c, omode, pckbtab, nelem(pckbtab), devgen);
 }
 
 static void
-kbinclose(Chan *c)
+pckbclose(Chan *c)
 {
 	switch(c->qid.path){
 	case Qkbin:
@@ -554,7 +557,7 @@ enum {
 };
 extern char* smprint(char*, ...);
 static long
-kbinread(Chan *c, void *a, long n, vlong offset)
+pckbread(Chan *c, void *a, long n, vlong offset)
 {
 	char *p, buf[Kblinelen+1];
 	int t, sc;
@@ -562,7 +565,7 @@ kbinread(Chan *c, void *a, long n, vlong offset)
 	Kbscan *s;
 
 	if(c->qid.type == QTDIR)
-		return devdirread(c, a, n, kbintab, nelem(kbintab), devgen);
+		return devdirread(c, a, n, pckbtab, nelem(pckbtab), devgen);
 	switch(c->qid.path){
 	case Qkbin:
 		s = c->aux;
@@ -624,7 +627,7 @@ addline(char *line)
 }
 
 static long
-kbinwrite(Chan *c, void *a, long n, vlong)
+pckbwrite(Chan *c, void *a, long n, vlong)
 {
 	char *p, *q, buf[100];
 	uchar *u;
@@ -671,20 +674,20 @@ kbinwrite(Chan *c, void *a, long n, vlong)
 
 Dev pckbdevtab = {
 	L'Ι',			/* fix.  demanded by usb/kb */
-	"kbin",
+	"pckb",
 
 	devreset,
 	devinit,
 	devshutdown,
-	kbinattach,
-	kbinwalk,
-	kbinstat,
-	kbinopen,
+	pckbattach,
+	pckbwalk,
+	pckbstat,
+	pckbopen,
 	devcreate,
-	kbinclose,
-	kbinread,
+	pckbclose,
+	pckbread,
 	devbread,
-	kbinwrite,
+	pckbwrite,
 	devbwrite,
 	devremove,
 	devwstat,

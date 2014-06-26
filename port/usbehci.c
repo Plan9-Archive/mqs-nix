@@ -173,7 +173,7 @@ struct Qtree
 {
 	int	nel;
 	int	depth;
-	ulong*	bw;
+	uint*	bw;
 	Qh**	root;
 };
 
@@ -188,11 +188,11 @@ struct Qio
 	int	usbid;		/* usb address for endpoint/device */
 	int	toggle;		/* Tddata0/Tddata1 */
 	int	tok;		/* Tdtoksetup, Tdtokin, Tdtokout */
-	ulong	iotime;		/* last I/O time; to hold interrupt polls */
+	uint	iotime;		/* last I/O time in ms; to hold interrupt polls */
 	int	debug;		/* debug flag from the endpoint */
 	char*	err;		/* error string */
 	char*	tag;		/* debug (no room in Qh for this) */
-	ulong	bw;
+	uint	bw;
 };
 
 struct Ctlio
@@ -213,13 +213,13 @@ struct Isoio
 	uchar*	data;		/* iso data buffers if not embedded */
 	char*	err;		/* error string */
 	int	nerrs;		/* nb of consecutive I/O errors */
-	ulong	maxsize;	/* ntds * ep->maxpkt */
+	uint	maxsize;		/* ntds * ep->maxpkt */
 	long	nleft;		/* number of bytes left from last write */
 	int	debug;		/* debug flag from the endpoint */
 	int	delay;		/* max number of bytes to buffer */
 	int	hs;		/* is high speed? */
 	Isoio*	next;		/* in list of active Isoios */
-	ulong	td0frno;	/* first frame used in ctlr */
+	uint	td0frno;	/* first frame used in ctlr */
 	union{
 		Itd*	tdi;	/* next td processed by interrupt */
 		Sitd*	stdi;
@@ -547,10 +547,10 @@ flog2lower(int n)
 }
 
 static int
-pickschedq(Qtree *qt, int pollival, ulong bw, ulong limit)
+pickschedq(Qtree *qt, int pollival, uint bw, uint limit)
 {
 	int i, j, d, upperb, q;
-	ulong best, worst, total;
+	uint best, worst, total;
 
 	d = flog2lower(pollival);
 	if(d > qt->depth)
@@ -580,11 +580,11 @@ schedq(Ctlr *ctlr, Qh *qh, int pollival)
 {
 	int q;
 	Qh *tqh;
-	ulong bw;
+	uint bw;
 
 	bw = qh->io->bw;
 	q = pickschedq(ctlr->tree, pollival, 0, ~0);
-	ddqprint("ehci: sched %#p q %d, ival %d, bw %uld\n",
+	ddqprint("ehci: sched %#p q %d, ival %d, bw %ud\n",
 		qh->io, q, pollival, bw);
 	if(q < 0){
 		print("ehci: no room for ed\n");
@@ -608,7 +608,7 @@ unschedq(Ctlr *ctlr, Qh *qh)
 	int q;
 	Qh *prev, *this, *next;
 	Qh **l;
-	ulong bw;
+	uint bw;
 
 	bw = qh->io->bw;
 	q = qh->sched;
@@ -1061,11 +1061,11 @@ isodump(Isoio* iso, int all)
 		print("<nil iso>\n");
 		return;
 	}
-	print("iso %#p %s %s speed state %d nframes %d maxsz %uld",
+	print("iso %#p %s %s speed state %d nframes %d maxsz %ud",
 		iso, iso->tok == Tdtokin ? "in" : "out",
 		iso->hs ? "high" : "full",
 		iso->state, iso->nframes, iso->maxsize);
-	print(" td0 %uld tdi %#p tdu %#p data %#p\n",
+	print(" td0 %ud tdi %#p tdu %#p data %#p\n",
 		iso->td0frno, iso->tdi, iso->tdu, iso->data);
 	if(iso->err != nil)
 		print("\terr %s\n", iso->err);
@@ -1242,7 +1242,7 @@ static void
 itdinit(Isoio *iso, Itd *td)
 {
 	int p, t;
-	ulong pa, tsize, size;
+	u32int pa, tsize, size;
 
 	/*
 	 * BUG: This does not put an integral number of samples
@@ -1374,7 +1374,7 @@ isohsinterrupt(Ctlr *ctlr, Isoio *iso)
 				iso->err = ierrmsg(err);
 				diprint("isohsintr: tdi %#p error %#ux %s\n",
 					tdi, err, iso->err);
-				diprint("ctlr load %uld\n", ctlr->load);
+				diprint("ctlr load %ud\n", ctlr->load);
 			}
 			tdi->ndata = 0;
 		}else
@@ -1438,7 +1438,7 @@ isofsinterrupt(Ctlr *ctlr, Isoio *iso)
 				iso->err = serrmsg(err);
 				diprint("isofsintr: tdi %#p error %#ux %s\n",
 					stdi, err, iso->err);
-				diprint("ctlr load %uld\n", ctlr->load);
+				diprint("ctlr load %ud\n", ctlr->load);
 			}
 			stdi->ndata = 0;
 		}else
@@ -1774,7 +1774,7 @@ static char*
 seprintio(char *s, char *e, Qio *io, char *pref)
 {
 	s = seprint(s,e,"%s io %#p qh %#p id %#x", pref, io, io->qh, io->usbid);
-	s = seprint(s,e," iot %ld", io->iotime);
+	s = seprint(s,e," iot %d", io->iotime);
 	s = seprint(s,e," tog %#x tok %#x err %s", io->toggle, io->tok, io->err);
 	return s;
 }
@@ -2272,7 +2272,7 @@ epiodone(void *a)
 }
 
 static void
-epiowait(Hci *hp, Qio *io, int tmout, ulong load)
+epiowait(Hci *hp, Qio *io, int tmout, uint load)
 {
 	Qh *qh;
 	int timedout;
@@ -2346,7 +2346,7 @@ epio(Ep *ep, Qio *io, void *a, long count, int mustlock)
 {
 	int saved, ntds, tmout;
 	long n, tot;
-	ulong load;
+	uint load;
 	char *err;
 	char buf[128];
 	uchar *c;
@@ -2357,7 +2357,7 @@ epio(Ep *ep, Qio *io, void *a, long count, int mustlock)
 	ctlr = ep->hp->aux;
 	io->debug = ep->debug;
 	tmout = ep->tmout;
-	ddeprint("epio: %s ep%d.%d io %#p count %ld load %uld\n",
+	ddeprint("epio: %s ep%d.%d io %#p count %ld load %ud\n",
 		io->tok == Tdtokin ? "in" : "out",
 		ep->dev->nb, ep->nb, io, count, ctlr->load);
 	if((ehcidebug > 1 || ep->debug > 1) && io->tok != Tdtokin){
@@ -2408,7 +2408,7 @@ epio(Ep *ep, Qio *io, void *a, long count, int mustlock)
 	ltd->csw |= Tdioc;		/* the last one interrupts */
 	coherence();
 
-	ddeprint("ehci: load %uld ctlr load %uld\n", load, ctlr->load);
+	ddeprint("ehci: load %ud ctlr load %ud\n", load, ctlr->load);
 	if(ehcidebug > 1 || ep->debug > 1)
 		dumptd(td0, "epio: put: ");
 
@@ -2486,7 +2486,7 @@ epread(Ep *ep, void *a, long count)
 	Qio *io;
 	Isoio *iso;
 	char buf[160];
-	ulong delta;
+	uint delta;
 
 	ddeprint("ehci: epread\n");
 	if(ep->aux == nil)
@@ -2646,7 +2646,7 @@ epwrite(Ep *ep, void *a, long count)
 	Qio *io;
 	Ctlio *cio;
 	Isoio *iso;
-	ulong delta;
+	uint delta;
 
 	pollcheck(ep->hp);
 
@@ -2683,7 +2683,7 @@ isofsinit(Ep *ep, Isoio *iso)
 	long left;
 	Sitd *td, *ltd;
 	int i;
-	ulong frno;
+	uint frno;
 
 	left = 0;
 	ltd = nil;
@@ -2729,8 +2729,9 @@ static void
 isohsinit(Ep *ep, Isoio *iso)
 {
 	int ival, p;
+	uint frno, i;
 	long left;
-	ulong frno, i, pa;
+	u32int pa;	/* not 32-bit clean */
 	Itd *ltd, *td;
 
 	iso->hs = 1;
@@ -2778,7 +2779,7 @@ isoopen(Ctlr *ctlr, Ep *ep)
 	int ival;		/* pollival in ms */
 	int tpf;		/* tds per frame */
 	int i, n, w, woff;
-	ulong frno;
+	uint frno;
 	Isoio *iso;
 
 	iso = ep->aux;
@@ -2816,7 +2817,7 @@ isoopen(Ctlr *ctlr, Ep *ep)
 	ctlr->load += ep->load;
 	ctlr->isoload += ep->load;
 	ctlr->nreqs++;
-	dprint("ehci: load %uld isoload %uld\n", ctlr->load, ctlr->isoload);
+	dprint("ehci: load %ud isoload %ud\n", ctlr->load, ctlr->isoload);
 	diprint("iso nframes %d pollival %uld ival %d maxpkt %uld ntds %d\n",
 		iso->nframes, ep->pollival, ival, ep->maxpkt, ep->ntds);
 	iunlock(ctlr);
@@ -2991,7 +2992,7 @@ cancelio(Ctlr *ctlr, Qio *io)
 }
 
 static void
-cancelisoio(Ctlr *ctlr, Isoio *iso, int pollival, ulong load)
+cancelisoio(Ctlr *ctlr, Isoio *iso, int pollival, uint load)
 {
 	int frno, i, n, t, w, woff;
 	u32int *lp, *tp;
@@ -3151,7 +3152,7 @@ static void
 mkqhtree(Ctlr *ctlr)
 {
 	int i, n, d, o, leaf0, depth;
-	ulong leafs[Nintrleafs];
+	u32int leafs[Nintrleafs];
 	Qh *qh;
 	Qh **tree;
 	Qtree *qt;
@@ -3212,7 +3213,7 @@ ehcimeminit(Ctlr *ctlr)
 	Eopio *opio;
 
 	opio = ctlr->opio;
-	frsize = ctlr->nframes * sizeof(ulong);
+	frsize = ctlr->nframes * sizeof(u32int);
 	assert((frsize & 0xFFF) == 0);		/* must be 4k aligned */
 	ctlr->frames = mallocalign(frsize, frsize, 0, 0);
 	if(ctlr->frames == nil)

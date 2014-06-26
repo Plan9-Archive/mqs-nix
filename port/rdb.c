@@ -6,6 +6,7 @@
 
 #include "ureg.h"
 
+#undef DBG
 #define DBG	if(0)scrprint
 #pragma varargck argpos scrprint 1
 static Ureg ureg;
@@ -45,36 +46,32 @@ getline(void)
 static void*
 addr(char *s, Ureg *ureg, char **p)
 {
-	ulong a;
+	uintptr a;
 
-	a = strtoul(s, p, 16);
+	a = strtoull(s, p, 16);
 	if(a < sizeof(Ureg))
 		return ((uchar*)ureg)+a;
-	return (void*)a;
+	return UINT2PTR(a);
 }
 
 static void
 talkrdb(Ureg *ureg)
 {
-	uchar *a;
+	uintptr *a;
 	char *p, *req;
 
-	synccons();
-//	scrprint("Plan 9 debugger\n");
-	iprint("Edebugger reset\n");
 	for(;;){
 		req = getline();
 		switch(*req){
 		case 'r':
 			a = addr(req+1, ureg, nil);
 			DBG("read %#p\n", a);
-			iprint("R%.8lux %.2ux %.2ux %.2ux %.2ux\n",
-				strtoul(req+1, 0, 16), a[0], a[1], a[2], a[3]);
+			iprint("R%p %.*H", a, sizeof(uintptr), a);
 			break;
 
 		case 'w':
 			a = addr(req+1, ureg, &p);
-			*(ulong*)a = strtoul(p, nil, 16);
+			*a = strtoull(p, nil, 16);
 			iprint("W\n");
 			break;
 /*
@@ -85,7 +82,7 @@ talkrdb(Ureg *ureg)
 				break;
 			}
 			a = addr(min+0);
-			scrprint("mput %.8lux\n", a);
+			scrprint("mput %p\n", a);
 			memmove(a, min+5, n);
 			mesg(Rmput, mout);
 			break;
@@ -102,6 +99,10 @@ talkrdb(Ureg *ureg)
 void
 rdb(void)
 {
+	extern int encodefmt(Fmt*);
+
+	fmtinstall('H', encodefmt);
+	synccons();
 	splhi();
 	iprint("rdb...");
 	callwithureg(talkrdb);

@@ -46,9 +46,7 @@ typedef struct RWlock	RWlock;
 typedef struct Sched	Sched;
 typedef struct Schedq	Schedq;
 typedef struct Segment	Segment;
-typedef struct Sem	Sem;
 typedef struct Sema	Sema;
-typedef struct Sems	Sems;
 typedef struct Timer	Timer;
 typedef struct Timers	Timers;
 typedef struct Uart	Uart;
@@ -110,10 +108,7 @@ struct LockEntry
 	uint	locked;
 	Lock*	used;
 	int	isilock;
-	union {					/* GAK */
-		Mpl	pl;
-		Mreg	sr;
-	};
+	Mpl	pl;
 	/* for debugging */
 	uintptr	pc;
 	Proc*	p;
@@ -390,7 +385,6 @@ struct Image
 	Qid	mqid;
 	Chan	*mchan;
 	int	dc;			/* Device type of owning channel */
-//subtype
 	Segment *s;			/* TEXT segment for image if running */
 	Image	*hash;			/* Qid hash chains */
 	Image	*next;			/* Free list or lru list */
@@ -432,10 +426,7 @@ enum
 	SG_CEXEC	= 0100,		/* Detach at exec */
 };
 
-#define PG_ONSWAP	1
-#define onswap(s)	(PTR2UINT(s) & PG_ONSWAP)
-#define pagedout(s)	(PTR2UINT(s) == 0 || onswap(s))
-#define swapaddr(s)	(PTR2UINT(s) & ~PG_ONSWAP)
+#define pagedout(s)	(s == nil)
 
 #define SEGMAXPG	(SEGMAPSIZE)
 
@@ -458,23 +449,6 @@ struct Sema
 	int	waiting;
 	Sema*	next;
 	Sema*	prev;
-};
-
-/* NIX semaphores */
-struct Sem
-{
-	Lock;
-	int*	np;		/* user-level semaphore */
-	Proc**	q;
-	int	nq;
-	Sem*	next;		/* in list of semaphores for this Segment */
-};
-
-/* NIX semaphores */
-struct Sems
-{
-	Sem**	s;
-	int	ns;
 };
 
 #define NOCOLOR -1
@@ -503,7 +477,6 @@ struct Segment
 	Pte	*ssegmap[SSEGMAPSIZE];
 	Lock	semalock;
 	Sema	sema;
-	Sems	sems;
 };
 
 enum
@@ -587,7 +560,6 @@ struct Pgsza
 struct Pgalloc
 {
 	Lock;
-	int	userinit;	/* working in user init mode */
 	Pgsza	pgsza[NPGSZ];	/* allocs for m->npgsz page sizes */
 	Page*	hash[PGHSIZE];	/* only used for user pages */
 	Lock	hashlock;
@@ -720,6 +692,7 @@ union Ar0 {
 	uintptr	p;
 	usize	u;
 	void*	v;
+	vlong	vl;
 };
 
 struct Proc
@@ -852,9 +825,6 @@ struct Proc
 
 	int	fcount;
 	char*	syscalltrace;
-
-	/* NIX */
-	Sem	*waitsem;
 
 	uint	ntrap;		/* # of traps while in this process */
 	uint	nintr;		/* # of intrs while in this process */

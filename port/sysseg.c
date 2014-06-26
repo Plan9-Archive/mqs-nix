@@ -206,7 +206,7 @@ sysbrk_(Ar0* ar0, va_list list)
 }
 
 static uintptr
-segattach(Proc* p, int attr, char* name, uintptr va, usize len)
+segattach(Proc* p, int attr, char* name, uintptr va, uintptr len)
 {
 	int sno;
 	uintmem pgsz;		/* should be usize */

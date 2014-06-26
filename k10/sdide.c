@@ -64,6 +64,8 @@ struct Ctlr {
 
 //	Lock	irqmask;
 	Rendez;
+
+	void	*vector;
 };
 
 struct Drive {
@@ -851,7 +853,7 @@ enable(SDev *s)
 //		ctlr->prdt = mallocalign(Nprd*sizeof(Prd), 4, 0, 64*1024);
 	}
 	snprint(name, sizeof name, "%s (%s)", s->name, s->ifc->name);
-	intrenable(c->intl, interrupt, c, c->tbdf, name);
+	c->vector = intrenable(c->intl, interrupt, c, c->tbdf, name);
 	outb(c->ctl+Dc, 0);
 //	if(c->ienable != nil)
 //		c->ienable(c);
@@ -876,7 +878,7 @@ disable(SDev *s)
 	c = s->ctlr;
 	outb(c->ctl+Dc, Nien);		/* disable interrupts */
 	snprint(name, sizeof(name), "%s (%s)", sdev->name, sdev->ifc->name);
-//	intrdisable(c->intl, interrupt, c, c->tbdf, name);
+//	intrdisable(c->vector);
 //	free(c->prdt);
 //	c->prdt = nil;
 	if(c->p != nil)
@@ -908,7 +910,7 @@ rctl(SDunit *u, char *p, int l)
 		p = sfisxrdctl(d, p, e);
 	else
 		p = seprint(p, e, "no disk present [%s]\n", dstate(d->state));
-	p = seprint(p, e, "geometry %llud %lud\n", u->sectors, u->secsize);
+	p = seprint(p, e, "geometry %llud %ud\n", u->sectors, u->secsize);
 	return p - op;
 }
 
@@ -1136,6 +1138,8 @@ pnp(void)
 print("ide: %T: pci style %#ux %#ux\n", p->tbdf, c->cmd, c->ctl);
 				if(c->cmd == c->ctl)
 					continue;
+			else if(sys->nolegacyprobe)
+				continue;
 			}else if(lchan[seq].probed == 0){
 				lchan[seq].probed = 1;
 				c->tbdf = BUSUNKNOWN;

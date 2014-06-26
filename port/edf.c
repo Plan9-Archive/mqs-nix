@@ -19,8 +19,6 @@ enum {
 static long	now;	/* Low order 32 bits of time in µs */
 
 /* Statistics stuff */
-ulong		nilcount;
-ulong		scheds;
 ulong		edfnrun;
 int		misseddeadlines;
 
@@ -79,7 +77,8 @@ timeconv(Fmt *f)
 	return fmtstrcpy(f, buf);
 }
 
-long edfcycles;
+uvlong edfcycles;
+static uvlong edfenter;
 
 Edf*
 edflock(Proc *p)
@@ -91,9 +90,7 @@ edflock(Proc *p)
 	ilock(&thelock);
 	if((e = p->edf) && (e->flags & Admitted)){
 		locksetpc(&thelock, getcallerpc(&p));
-#ifdef EDFCYCLES
-		edfcycles -= lcycles();
-#endif
+		cycles(&edfenter);
 		now = µs();
 		return e;
 	}
@@ -104,10 +101,10 @@ edflock(Proc *p)
 void
 edfunlock(void)
 {
+	uvlong t;
 
-#ifdef EDFCYCLES
-	edfcycles += lcycles();
-#endif
+	cycles(&t);
+	edfcycles += t-edfenter;
 	edfnrun++;
 	iunlock(&thelock);
 }

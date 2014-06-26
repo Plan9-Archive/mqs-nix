@@ -417,7 +417,7 @@ panic(char *fmt, ...)
 	synccons();
 
 	splhi();	/* never to release */
-	p = seprint(buf, buf+sizeof buf, "panic: cpu%d: ", m->machno);
+	p = seprint(buf, buf+sizeof buf, "panic: mach%d: ", m->machno);
 	va_start(arg, fmt);
 	vseprint(p, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
@@ -597,7 +597,7 @@ int
 kbdputc(Queue*, int ch)
 {
 	int i, n;
-	char buf[3];
+	char buf[UTFmax];
 	Rune r;
 	char *next;
 

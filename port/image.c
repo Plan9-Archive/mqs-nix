@@ -5,8 +5,7 @@
 #include	"fns.h"
 #include	"../port/error.h"
 
-#define NFREECHAN	64
-#define IHASHSIZE	64
+#define IHASHSIZE	67
 #define ihash(s)	imagealloc.hash[s%IHASHSIZE]
 
 static struct Imagealloc
@@ -16,31 +15,25 @@ static struct Imagealloc
 	Image	*lru;			/* tail of LRU list */
 	Image	*hash[IHASHSIZE];
 	QLock	ireclaim;		/* mutex on reclaiming free images */
-
-	Chan	**freechan;		/* free image channels */
-	int	nfreechan;		/* number of free channels */
-	int	szfreechan;		/* size of freechan array */
-	QLock	fcreclaim;		/* mutex on reclaiming free channels */
 } imagealloc;
 
 static struct {
-	int	calls;			/* times imagereclaim was called */
-	int	loops;			/* times the main loop was run */
+	int	attachimage;		/* number of attach images */
+	int	found;			/* number of images found */
+	int	reclaims;			/* times imagereclaim was called */
 	uvlong	ticks;			/* total time in the main loop */
 	uvlong	maxt;			/* longest time in main loop */
-	int	noluck;			/* # of times we couldn't get one */
-	int	nolock;			/* # of times we couldn't get the lock */
 } irstats;
 
-static void
-dumplru(void)
+char*
+imagestats(char *p, char *e)
 {
-	Image *i;
-
-	print("lru:");
-	for(i = imagealloc.mru; i != nil; i = i->next)
-		print(" %p(c%p,r%d)", i, i->c, i->ref);
-	print("\n");
+	p = seprint(p, e, "image reclaims: %d\n", irstats.reclaims);
+	p = seprint(p, e, "image µs: %lld\n", fastticks2us(irstats.ticks));
+	p = seprint(p, e, "image max µs: %lld\n", fastticks2us(irstats.maxt));
+	p = seprint(p, e, "image attachimage: %d\n", irstats.attachimage);
+	p = seprint(p, e, "image found: %d\n", irstats.found);
+	return p;
 }
 
 /*
@@ -93,10 +86,6 @@ lruimage(void)
 	return nil;
 }
 
-/*
- * On clu, set sys->nimages = 10 to exercise reclaiming.
- * It won't be able to get through all of cpurc, but will reclaim.
- */
 void
 initimage(void)
 {
@@ -116,89 +105,32 @@ initimage(void)
 	imagealloc.mru[0].prev = nil;
 	imagealloc.mru[sys->nimage-1].next = nil;
 	imagealloc.lru = &imagealloc.mru[sys->nimage-1];
-	imagealloc.freechan = malloc(NFREECHAN * sizeof(Chan*));
-	imagealloc.szfreechan = NFREECHAN;
-
 }
 
-static void
+/*
+ * images may hang around because they have stale pages referring
+ * to them.  call pagerreclaim() to do the dirty work.
+ */
+static uint
 imagereclaim(void)
 {
-	Image *i;
+	uint sz;
 	uvlong ticks0, ticks;
 
-	irstats.calls++;
-	/* Somebody is already cleaning the page cache */
 	if(!canqlock(&imagealloc.ireclaim))
-		return;
-	DBG("imagereclaim maxt %ulld noluck %d nolock %d\n",
-		irstats.maxt, irstats.noluck, irstats.nolock);
+		return 0;
+	irstats.reclaims++;
 	ticks0 = fastticks(nil);
-	if(!canlock(&imagealloc)){
-		/* never happen in the experiments I made */
-		qunlock(&imagealloc.ireclaim);
-		return;
-	}
 
-	for(i = imagealloc.lru; i != nil; i = i->prev){
-		if(canlock(i)){
-			i->ref++;	/* make sure it does not go away */
-			unlock(i);
-			pagereclaim(i);
-			lock(i);
-			DBG("imagereclaim: image %p(c%p, r%d)\n", i, i->c, i->ref);
-			if(i->ref == 1){	/* no pages referring to it, it's ours */
-				unlock(i);
-				unlock(&imagealloc);
-				putimage(i);
-				break;
-			}else
-				--i->ref;
-			unlock(i);
-		}
-	}
+	sz = pagereclaim();
 
-	if(i == nil){
-		irstats.noluck++;
-		unlock(&imagealloc);
-	}
-	irstats.loops++;
 	ticks = fastticks(nil) - ticks0;
 	irstats.ticks += ticks;
 	if(ticks > irstats.maxt)
 		irstats.maxt = ticks;
-	//print("T%llud+", ticks);
+	DBG("imagereclaim %lludµs\n", fastticks2us(ticks));
 	qunlock(&imagealloc.ireclaim);
-}
-
-/*
- *  since close can block, this has to be called outside of
- *  spin locks.
- */
-static void
-imagechanreclaim(void)
-{
-	Chan *c;
-
-	/* Somebody is already cleaning the image chans */
-	if(!canqlock(&imagealloc.fcreclaim))
-		return;
-
-	/*
-	 * We don't have to recheck that nfreechan > 0 after we
-	 * acquire the lock, because we're the only ones who decrement
-	 * it (the other lock contender increments it), and there's only
-	 * one of us thanks to the qlock above.
-	 */
-	while(imagealloc.nfreechan > 0){
-		lock(&imagealloc);
-		imagealloc.nfreechan--;
-		c = imagealloc.freechan[imagealloc.nfreechan];
-		unlock(&imagealloc);
-		cclose(c);
-	}
-
-	qunlock(&imagealloc.fcreclaim);
+	return sz;
 }
 
 Image*
@@ -206,11 +138,8 @@ attachimage(int type, Chan *c, int color, uintptr base, uintptr top)
 {
 	Image *i, **l;
 
-	/* reclaim any free channels from reclaimed segments */
-	if(imagealloc.nfreechan)
-		imagechanreclaim();
-
 	lock(&imagealloc);
+	irstats.attachimage++;
 
 	/*
 	 * Search the image cache for remains of the text from a previous
@@ -223,7 +152,7 @@ attachimage(int type, Chan *c, int color, uintptr base, uintptr top)
 			   eqqid(c->mqid, i->mqid) &&
 			   c->mchan == i->mchan &&
 			   c->dev->dc == i->dc) {
-//subtype
+				irstats.found++;
 				goto found;
 			}
 			unlock(i);
@@ -245,7 +174,6 @@ attachimage(int type, Chan *c, int color, uintptr base, uintptr top)
 	incref(c);
 	i->c = c;
 	i->dc = c->dev->dc;
-//subtype
 	i->qid = c->qid;
 	i->mqid = c->mqid;
 	i->mchan = c->mchan;
@@ -266,7 +194,7 @@ found:
 		i->s = newseg(type, base, top);
 		i->s->image = i;
 		i->s->color = color;
-		i->ref++;
+		incref(i);
 		poperror();
 	}
 	else
@@ -278,14 +206,14 @@ found:
 void
 putimage(Image *i)
 {
-	Chan *c, **cp;
+	Chan *c;
 	Image *f, **l;
 
 	if(i->notext)
 		return;
 
-	lock(i);
-	if(--i->ref == 0) {
+	if(decref(i) == 0){
+		lock(i);
 		l = &ihash(i->qid.path);
 		mkqid(&i->qid, ~0, ~0, QTFILE);
 		unlock(i);
@@ -299,22 +227,9 @@ putimage(Image *i)
 			}
 			l = &f->hash;
 		}
-
-		/* defer freeing channel till we're out of spin lock's */
-		if(imagealloc.nfreechan == imagealloc.szfreechan){
-			imagealloc.szfreechan += NFREECHAN;
-			cp = malloc(imagealloc.szfreechan*sizeof(Chan*));
-			if(cp == nil)
-				panic("putimage");
-			memmove(cp, imagealloc.freechan, imagealloc.nfreechan*sizeof(Chan*));
-			free(imagealloc.freechan);
-			imagealloc.freechan = cp;
-		}
-		imagealloc.freechan[imagealloc.nfreechan++] = c;
 		i->c = nil;		/* flag as unused in lru list */
 		unlock(&imagealloc);
 
-		return;
+		ccloseq(c);		/* won't block */
 	}
-	unlock(i);
 }

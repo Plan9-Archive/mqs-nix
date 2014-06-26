@@ -135,33 +135,33 @@ TEXT trput(SB), 1, $-4
 /*
  * Read/write various system registers.
  */
-TEXT cr0get(SB), 1, $-4				/* Processor Control */
+TEXT getcr0(SB), 1, $-4				/* Processor Control */
 	MOVQ	CR0, AX
 	RET
 
-TEXT cr0put(SB), 1, $-4
+TEXT putcr0(SB), 1, $-4
 	MOVQ	RARG, AX
 	MOVQ	AX, CR0
 	RET
 
-TEXT cr2get(SB), 1, $-4				/* #PF Linear Address */
+TEXT getcr2(SB), 1, $-4				/* #PF Linear Address */
 	MOVQ	CR2, AX
 	RET
 
-TEXT cr3get(SB), 1, $-4				/* PML4 Base */
+TEXT getcr3(SB), 1, $-4				/* PML4 Base */
 	MOVQ	CR3, AX
 	RET
 
-TEXT cr3put(SB), 1, $-4
+TEXT putcr3(SB), 1, $-4
 	MOVQ	RARG, AX
 	MOVQ	AX, CR3
 	RET
 
-TEXT cr4get(SB), 1, $-4				/* Extensions */
+TEXT getcr4(SB), 1, $-4				/* Extensions */
 	MOVQ	CR4, AX
 	RET
 
-TEXT cr4put(SB), 1, $-4
+TEXT putcr4(SB), 1, $-4
 	MOVQ	RARG, AX
 	MOVQ	AX, CR4
 	RET
@@ -267,37 +267,20 @@ TEXT islo(SB), 1, $-4
 /*
  * Synchronisation
  */
-TEXT ainc(SB), 1, $-4				/* int ainc(int*); */
-	MOVL	$1, AX
-	LOCK; XADDL AX, (RARG)
-	ADDL	$1, AX				/* overflow if -ve or 0 */
-	JGT	_return
-_trap:
-	XORQ	BX, BX
-	MOVQ	(BX), BX			/* over under sideways down */
-_return:
+TEXT ainc8(SB), 1, $-4
+	XORL	AX, AX
+	INCL	AX
+	LOCK;	XADDB AX, (RARG)
+/* BOTCH	INCL	AX */
 	RET
 
-TEXT adec(SB), 1, $-4				/* int adec(int*); */
-	MOVL	$-1, AX
-	LOCK; XADDL AX, (RARG)
-	SUBL	$1, AX				/* underflow if -ve */
-	JLT	_trap
-
-	RET
-
-/*
- * Semaphores rely on negative values for the counter,
- * and don't have the same overflow/underflow conditions
- * as ainc/adec.
- */
-TEXT semainc(SB), 1, $-4			/* int semainc(int*); */
+TEXT ainc(SB), 1, $-4			/* int ainc(int*) */
 	MOVL	$1, AX
 	LOCK; XADDL AX, (RARG)
 	ADDL	$1, AX
 	RET
 
-TEXT semadec(SB), 1, $-4			/* int semadec(int*); */
+TEXT adec(SB), 1, $-4			/* int adec(int*) */
 	MOVL	$-1, AX
 	LOCK; XADDL AX, (RARG)
 	SUBL	$1, AX
@@ -306,6 +289,11 @@ TEXT semadec(SB), 1, $-4			/* int semadec(int*); */
 TEXT tas32(SB), 1, $-4
 	MOVL	$0xdeaddead, AX
 	XCHGL	AX, (RARG)			/*  */
+	RET
+
+TEXT fas32(SB), 1, $-4
+	MOVL	p+8(FP), AX
+	LOCK; XCHGL	AX, (RARG)
 	RET
 
 TEXT fas64(SB), 1, $-4
@@ -354,45 +342,66 @@ TEXT setlabel(SB), 1, $-4
 	MOVL	$0, AX				/* return 0 */
 	RET
 
+TEXT pause(SB), 1, $-4
+	PAUSE
+	RET
+
 TEXT hardhalt(SB), 1, $-4
 	STI
 	HLT
 	RET
 
-TEXT _monitor(SB), 1, $-4			/* void monitor(void*); */
-	MOVQ	RARG, AX			/* linear address to monitor */
-	XORQ	CX, CX				/* no optional extensions yet */
-	XORQ	DX, DX				/* no optional hints yet */
-	BYTE $0x0f; BYTE $0x01; BYTE $0xc8	/* MONITOR */
+#define MONITOR	BYTE $0x0f; BYTE $0x01; BYTE $0xc8
+#define MWAIT		BYTE $0x0f; BYTE $0x01; BYTE $0xc9
+
+/*
+ * uintptr monmwait(void*, uintptr)
+ */
+TEXT	k10monmwait64(SB),1,$16
+	MOVQ	val+8(FP), BX
+
+_mmstart:
+	CMPQ	(BP), BX			/* changed yet? */
+	JNE	_mmdone
+
+	MOVQ	BP, AX				/* linear address to monitor */
+	XORQ	CX, CX				/* extensions */
+	XORQ	DX, DX				/* hints */
+	MONITOR
+
+	CMPQ	(BP), BX			/* changed yet? */
+	JNE	_mmdone
+
+	/*XORQ	CX, CX*/			/* extensions (different from monitor) */
+	XORQ	AX, AX				/* hints */
+	MWAIT
+						/* questionable: pop out on irq */
+_mmdone:
+	MOVQ	(BP), AX
 	RET
 
-TEXT _mwait(SB), 1, $-4				/* void mwait(u32int); */
-	MOVLQZX	RARG, CX			/* optional extensions */
-	BYTE $0x0f; BYTE $0x01; BYTE $0xc9	/* MWAIT */
-	RET
+TEXT	k10monmwait32(SB),1,$16
+	MOVQ	val+8(FP), BX
 
-TEXT	k10mwait+0(SB),0,$16
-k10mwloop:
-	MOVQ	RARG, CX
-	MOVQ	val+8(FP), DX
-	MOVQ	(CX), AX
-	CMPQ	AX, DX
-	JNE		k10mwdone
-	MOVQ	RARG, AX			/* linear address to monitor */
-	XORQ	CX, CX				/* no optional extensions yet */
-	XORQ	DX, DX				/* no optional hints yet */
-	BYTE $0x0f; BYTE $0x01; BYTE $0xc8	/* MONITOR */
-	MOVQ	RARG, CX
-	MOVQ	(CX),AX
-	MOVQ	val+8(FP), DX
-	CMPQ	AX, DX
-	JNE		k10mwdone
-	XORQ	DX, DX
-	XORQ CX, CX			/* optional extensions */
-	BYTE $0x0f; BYTE $0x01; BYTE $0xc9	/* MWAIT */
-	JMP		k10mwloop
-k10mwdone:
-	RET	,
+_mmstart32:
+	CMPL	(BP), BX			/* changed yet? */
+	JNE	_mmdone32
+
+	MOVQ	BP, AX				/* linear address to monitor */
+	XORQ	CX, CX				/* extensions */
+	XORQ	DX, DX				/* hints */
+	MONITOR
+
+	CMPL	(BP), BX			/* changed yet? */
+	JNE	_mmdone32
+
+	/*XORQ	CX, CX*/			/* extensions (different from monitor) */
+	XORQ	AX, AX				/* hints */
+	MWAIT
+						/* questionable: pop out on irq */
+_mmdone32:
+	MOVL	(BP), AX
+	RET
 
 TEXT mul64fract(SB), 1, $-4
 	MOVQ	a+8(FP), AX
@@ -431,7 +440,7 @@ eights:
 	JMP	eights
 
 f1:
-	MOVL	RARG, CX
+	MOVLQZX	cnt+8(FP), CX
 	ANDL	$7, CX
 	SHRQ	$2, CX
 fours:
@@ -444,7 +453,7 @@ fours:
 	JMP	fours
 
 f2:
-	MOVL	RARG, CX
+	MOVLQZX	cnt+8(FP), CX
 	ANDL	$3, CX
 ones:
 	CMPL	CX, $0

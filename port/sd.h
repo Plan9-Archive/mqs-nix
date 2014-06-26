@@ -43,14 +43,14 @@ struct SDunit {
 
 	QLock	ctl;
 	uvlong	sectors;
-	ulong	secsize;
+	uint	secsize;
 	SDpart*	part;			/* nil or array of size npart */
 	int	npart;
 	ulong	vers;
 	SDperm	ctlperm;
 
 	QLock	raw;			/* raw read or write in progress */
-	ulong	rawinuse;		/* really just a test-and-set */
+	int	rawinuse;		/* really just a test-and-set */
 	int	state;
 	SDreq*	req;
 	SDperm	rawperm;
@@ -165,12 +165,12 @@ extern long scsibio(SDunit*, int, int, void*, long, uvlong);
  *  hardware info about a device
  */
 struct Devport {
-	ulong	port;	
+	uintptr	port;	
 	int	size;
 };
 
 struct DevConf {
-	ulong	intnum;			/* interrupt number */
+	int	intnum;			/* interrupt number */
 	char	*type;			/* card type, malloced */
 	int	nports;			/* Number of ports */
 	Devport	*ports;			/* The ports themselves */

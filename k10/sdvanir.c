@@ -586,6 +586,8 @@ struct Ctlr {
 	Drive	drive[Nctlrdrv];
 	uint	ndrive;
 	uint	nfn;
+
+	void	*vector;
 };
 
 static	Ctlr	msctlr[Nctlr];
@@ -928,11 +930,6 @@ command(Drive *d, uint cmd, int ms)
 //	print("cqwp\t%.8ux : n %ux : d%d; \n", f->cq[0], n, i);
 //	print("%s: command %.8ux; slot %d; cq %d\n",
 //		dnam(d), d->cmd->cflag, f->dqwp, f->cq[0]);
-	/*
-	 * xinc doesn't return the previous value and i can't
-	 * figure out how to do this without a lock
-	 *	s = _xinc(&c->dqwp);
-	 */
 	ilock(d->ctlr);
 	d->cmd->cflag = Active;
 	s = f->dqwp++;
@@ -2022,14 +2019,12 @@ msenable(SDev *s)
 static int
 msdisable(SDev *s)
 {
-	char buf[32];
 	Ctlr *c;
 
 	c = s->ctlr;
 	ilock(c);
 //	disable(c->hba);
-	snprint(buf, sizeof buf, "%s (%s)", s->name, s->ifc->name);
-//	intrdisable(c->pci->intl, msinterrupt, c, c->pci->tbdf, buf);
+	intrdisable(c->vector);
 	c->enabled = 0;
 	iunlock(c);
 	return 1;
@@ -2122,7 +2117,7 @@ map(Pcidev *p, int bar)
 {
 	uintptr io;
 
-	io = p->mem[bar].bar & ~0xf;
+	io = p->mem[bar].bar & ~(uintmem)0xf;
 	return (uint*)vmap(io, p->mem[bar].size);
 }
 
@@ -2394,7 +2389,7 @@ msrctl(SDunit *u, char *p, int l)
 	if(d->state == Dready)
 		p = sfisxrdctl(d, p, e);
 	p = rctldebug(p, e, c, d);
-	p = seprint(p, e, "geometry %llud %lud\n", d->sectors, u->secsize);
+	p = seprint(p, e, "geometry %llud %ud\n", d->sectors, u->secsize);
 	return p - op;
 }
 

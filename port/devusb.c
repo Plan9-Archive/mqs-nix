@@ -294,7 +294,7 @@ seprintep(char *s, char *se, Ep *ep, int all)
 	else
 		s = seprint(s, se, " idle");
 	if(all){
-		s = seprint(s, se, " load %uld", ep->load);
+		s = seprint(s, se, " load %ud", ep->load);
 		s = seprint(s, se, " ref %d addr %#p", ep->ref, ep);
 		s = seprint(s, se, " idx %d", ep->idx);
 		if(ep->name != nil)
@@ -697,8 +697,8 @@ hciprobe(int cardno, int ctlrno)
 	 * controllers together. A device set to IRQ2 will appear on
 	 * the second interrupt controller as IRQ9.
 	 */
-	if(hp->irq == 2)
-		hp->irq = 9;
+/*port*/	if(hp->irq == 2)
+/*port*/		hp->irq = 9;
 	snprint(name, sizeof(name), "usb%s", hcitypes[cardno].type);
 	intrenable(hp->irq, hp->interrupt, hp, hp->tbdf, name);
 

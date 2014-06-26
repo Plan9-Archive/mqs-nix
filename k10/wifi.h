@@ -1,7 +1,76 @@
+typedef struct Wkey Wkey;
 typedef struct Wnode Wnode;
 typedef struct Wifi Wifi;
-
 typedef struct Wifipkt Wifipkt;
+
+enum {
+	Essidlen = 32,
+};
+
+/* cipher */
+enum {
+	TKIP	= 1,
+	CCMP	= 2,
+};
+
+struct Wkey
+{
+	int	cipher;
+	int	len;
+	uchar	key[32];
+	uvlong	tsc;
+};
+
+struct Wnode
+{
+	uchar	bssid[Eaddrlen];
+	char	ssid[Essidlen+2];
+
+	char	*status;
+
+	int	rsnelen;
+	uchar	rsne[258];
+	Wkey	txkey[1];
+	Wkey	rxkey[5];
+
+	int	aid;		/* association id */
+	ulong	lastsend;
+	ulong	lastseen;
+
+	uchar	*minrate;	/* pointers into wifi->rates */
+	uchar	*maxrate;
+
+	/* stuff from beacon */
+	int	ival;
+	int	cap;
+	int	channel;
+	int	brsnelen;
+	uchar	brsne[258];
+};
+
+struct Wifi
+{
+	Ether	*ether;
+
+	int	debug;
+
+	Queue	*iq;
+	ulong	watchdog;
+	Ref	txseq;
+	void	(*transmit)(Wifi*, Wnode*, Block*);
+
+	/* for searching */
+	uchar	bssid[Eaddrlen];
+	char	essid[Essidlen+2];
+
+	/* supported data rates by hardware */
+	uchar	*rates;
+
+	/* effective base station */
+	Wnode	*bss;
+
+	Wnode	node[32];
+};
 
 struct Wifipkt
 {
@@ -11,41 +80,12 @@ struct Wifipkt
 	uchar	a2[Eaddrlen];
 	uchar	a3[Eaddrlen];
 	uchar	seq[2];
-};
-
-enum {
-	WIFIHDRSIZE = 2+2+3*6+2,
-};
-
-struct Wnode
-{
-	uchar	bssid[Eaddrlen];
-	char	ssid[32+2];
-	int	ival;
-	int	cap;
-	int	aid;
-	int	channel;
-	long	lastseen;
-};
-
-struct Wifi
-{
-	Ether	*ether;
-
-	Queue	*iq;
-	char	*status;
-	Ref	txseq;
-	void	(*transmit)(Wifi*, Wnode*, Block*);
-
-	char	essid[32+2];
-	Wnode	*bss;
-
-	Wnode	node[32];
+	uchar	a4[Eaddrlen];
 };
 
 Wifi *wifiattach(Ether *ether, void (*transmit)(Wifi*, Wnode*, Block*));
 void wifiiq(Wifi*, Block*);
+int wifihdrlen(Wifipkt*);
 
-long wifistat(Wifi*, void*, long, ulong);
+long wifistat(Wifi*, void*, long, uvlong);
 long wifictl(Wifi*, void*, long);
-

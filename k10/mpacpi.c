@@ -28,30 +28,23 @@ mpacpi(int maxmach)
 		already = "";
 		switch(st->type){
 		case ASlapic:
-			if(st->lapic.id > Napic || np == maxmach)
-				break;
-			apic = xlapic + st->lapic.id;
 			bp = (np++ == 0);
-			if(apic->useable){
+			if(lapiclookup(st->lapic.id) == nil)
 				already = "(mp)";
-				goto pr;
-			}
-			lapicinit(st->lapic.id, apics->lapicpa, bp);
-		pr:
+			else
+				lapicinit(st->lapic.id, apics->lapicpa, bp);
 			USED(already);
 			DBG("lapic: mach %d/%d lapicid %d %s\n", np-1, apic->machno, st->lapic.id, already);
 			break;
 		case ASioapic:
-			if(st->ioapic.id > Napic)
-				break;
-			apic = xioapic + st->ioapic.id;
-			if(apic->useable){
+			if((apic = ioapiclookup(st->ioapic.id)) != nil){
 				apic->ibase = st->ioapic.ibase;	/* gnarly */
 				already = "(mp)";
-				goto pr1;
+			}else{
+				apic = ioapicinit(st->ioapic.id, st->ioapic.ibase, st->ioapic.addr);
+				if(apic == nil)
+					continue;
 			}
-			ioapicinit(st->ioapic.id, st->ioapic.ibase, st->ioapic.addr);
-		pr1:
 			print("ioapic: %d ", st->ioapic.id);
 			print("addr %p base %d %s\n", apic->paddr, apic->ibase, already);
 			break;

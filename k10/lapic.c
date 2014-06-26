@@ -74,7 +74,20 @@ enum {						/* Tdc */
 static u32int* lapicbase;
 static int lapmachno = 1;
 
-Apic	xlapic[Napic];
+static	Apic	xlapic[Napic];
+
+Apic*
+lapiclookup(uint id)
+{
+	Apic *a;
+
+	if(id > nelem(xlapic))
+		return nil;
+	a = xlapic + id;
+	if(a->useable)
+		return a;
+	return nil;
+}
 
 static u32int
 lapicrget(int r)
@@ -93,16 +106,6 @@ lapiceoi(int vecno)
 {
 	lapicrput(Eoi, 0);
 	return vecno;
-}
-
-int
-lapicisr(int vecno)
-{
-	int isr;
-
-	isr = lapicrget(Is + (vecno/32)*16);
-
-	return isr & (1<<(vecno%32));
 }
 
 static char*
@@ -150,28 +153,24 @@ lapicinit(int lapicno, uintmem pa, int isbp)
 	Apic *apic;
 
 	/*
-	 * Mark the LAPIC useable if it has a good ID
-	 * and the registers can be mapped.
-	 * The LAPIC Extended Broadcast and ID bits in the HyperTransport
-	 * Transaction Control register determine whether 4 or 8 bits
-	 * are used for the LAPIC ID. There is also xLAPIC and x2LAPIC
-	 * to be dealt with sometime.
+	 * Mark the LAPIC useable if it has a good ID, and the registers can
+	 * be mapped.  There is x2LAPIC to be dealt with at some point.
 	 */
 	DBG("lapicinit: lapicno %d pa %#P isbp %d caller %#p\n", lapicno, pa, isbp, getcallerpc(&lapicno));
 	addarchfile("lapic", 0444, lapicread, nil);
 
 	if(lapicno >= Napic){
-		print("lapicinit%d: out of range\n", lapicno);
+		panic("lapicinit%d: out of range", lapicno);
 		return;
 	}
 	if((apic = &xlapic[lapicno])->useable){
-//		print("lapicinit%d: already initialised\n", lapicno);
+		print("lapicinit%d: already initialised\n", lapicno);
 		return;
 	}
 	if(lapicbase == nil){
-		adrmapck(pa, 1024, Aapic, Mfree);
+		adrmapck(pa, 1024, Ammio, Mfree, Cnone);
 		if((lapicbase = vmap(pa, 1024)) == nil){
-			print("lapicinit%d: can't map lapicbase %#P\n", lapicno, pa);
+			panic("lapicinit%d: can't map lapicbase %#P", lapicno, pa);
 			return;
 		}
 		DBG("lapicinit%d: lapicbase %#P -> %#p\n", lapicno, pa, lapicbase);
@@ -189,6 +188,28 @@ lapicinit(int lapicno, uintmem pa, int isbp)
 	}
 	else
 		apic->machno = lapmachno++;
+}
+
+void
+lapicsetcolor(int lapicno, int color)
+{
+	Apic *apic;
+
+	DBG("lapic%d: setcolor: %d\n", lapicno, color);
+	if(lapicno >= Napic){
+		panic("lapic%d: lapiccolor: out of range", lapicno);
+		return;
+	}
+	if((apic = &xlapic[lapicno])->useable)
+		apic->color = color;
+	else
+		print("lapic%d: lapiccolor: not usable\n", lapicno);
+}
+
+int
+machcolor(Mach *mp)
+{
+	return xlapic[mp->apicno].color;
 }
 
 static void
@@ -218,12 +239,6 @@ lapicdump(void)
 		lapicdump0(xlapic + i, i);
 }
 
-static void
-apictimer(Ureg* ureg, void*)
-{
-	timerintr(ureg, 0);
-}
-
 int
 lapiconline(void)
 {
@@ -236,10 +251,18 @@ lapiconline(void)
 		panic("lapiconline: no lapic base");
 
 	if((apicno = ((lapicrget(Id)>>24) & 0xff)) >= Napic)
-		return 0;
+		panic("lapic: id too large %d", apicno);
+	if(apicno != m->apicno){
+		panic("lapic: %d != %d", m->apicno, apicno);
+		dfr = lapicrget(Id) & ~(0xff<<24);
+		dfr |= m->apicno<<24;
+		lapicrput(Id, dfr);
+		apicno = m->apicno;
+	}
 	apic = &xlapic[apicno];
 	if(!apic->useable || apic->addr != nil)
-		return 0;
+		panic("lapiconline: lapic%d: useable %d addr %#p",
+			apicno, apic->useable, apic->addr);
 
 	/*
 	 * Things that can only be done when on the processor
@@ -341,9 +364,7 @@ lapiconline(void)
 	 */
 	microdelay((TK2MS(1)*1000/lapmachno) * m->machno);
 	lapicrput(Tic, apic->max);
-
-	if(apic->machno == 0)
-		intrenable(IdtTIMER, apictimer, 0, -1, "APIC timer");
+	intrenable(IdtTIMER, timerintr, nil, -1, "APIC timer");
 	lapicrput(Tlvt, Periodic|IrqTIMER);
 	if(m->machno == 0)
 		lapicrput(Tp, 0);
@@ -353,18 +374,15 @@ lapiconline(void)
 void
 lapictimerset(uvlong next)
 {
-	Mpl pl;
 	Apic *apic;
 	vlong period;
 
-	apic = &xlapic[(lapicrget(Id)>>24) & 0xff];
-
-	pl = splhi();
-	lock(&m->apictimerlock);
+	apic = xlapic + m->apicno;
+	ilock(&m->apictimerlock);
 
 	period = apic->max;
 	if(next != 0){
-		period = next - fastticks(nil);	/* fastticks is just rdtsc() */
+		period = next - fastticks(nil);
 		period /= apic->div;
 
 		if(period < apic->min)
@@ -374,8 +392,7 @@ lapictimerset(uvlong next)
 	}
 	lapicrput(Tic, period);
 
-	unlock(&m->apictimerlock);
-	splx(pl);
+	iunlock(&m->apictimerlock);
 }
 
 void

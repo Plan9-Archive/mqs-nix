@@ -47,7 +47,6 @@ pageinit(void)
 	int si, i, color;
 	Page *pg;
 
-	pga.userinit = 1;
 	DBG("pageinit: npgsz = %d\n", m->npgsz);
 	/*
 	 * Don't pre-allocate 4K pages, we are not using them anymore.
@@ -71,8 +70,6 @@ pageinit(void)
 			unlock(&pga);
 		}
 	}
-
-	pga.userinit = 0;
 }
 
 int
@@ -83,7 +80,6 @@ getpgszi(usize size)
 	for(si = 0; si < m->npgsz; si++)
 		if(size == m->pgsz[si])
 			return si;
-	print("getpgszi: size %#ulx not found\n", size);
 	return -1;
 }
 
@@ -94,19 +90,23 @@ pgalloc(usize size, int color)
 	int si;
 
 	si = getpgszi(size);
+	if(si == -1){
+		print("pgalloc: getpgszi %lux %d %#p\n", size, color, getcallerpc(&size));
+		return nil;
+	}
 	if((pg = malloc(sizeof(Page))) == nil){
 		DBG("pgalloc: malloc failed\n");
 		return nil;
 	}
-	memset(pg, 0, sizeof *pg);
 	if((pg->pa = physalloc(size, &color, pg)) == 0){
-		DBG("pgalloc: physalloc failed: size %#ulx color %d\n", size, color);
+		DBG("pgalloc: physalloc failed: size %#lux color %d\n", size, color);
 		free(pg);
 		return nil;
 	}
 	pg->pgszi = si;	/* size index */
 	incref(&pga.pgsza[si].npages);
 	pg->color = color;
+	pg->ref = 1;
 	return pg;
 }
 
@@ -173,10 +173,10 @@ pagechainhead(Page *p)
 	}
 	else {
 		pa->tail = p;
-		p->next = 0;
+		p->next = nil;
 	}
 	pa->head = p;
-	p->prev = 0;
+	p->prev = nil;
 	pa->freecount++;
 }
 
@@ -198,12 +198,12 @@ newpage(int clear, Segment **s, uintptr va, usize size, int color)
 {
 	Page *p;
 	KMap *k;
-	uchar ct;
 	Pgsza *pa;
 	int i, dontalloc, si;
-	static int once;
 
 	si = getpgszi(size);
+	if(si == -1)
+		panic("newpage: getpgszi %lux %d %#p", size, color, getcallerpc(&size));
 	pa = &pga.pgsza[si];
 
 	lock(&pga);
@@ -220,35 +220,34 @@ newpage(int clear, Segment **s, uintptr va, usize size, int color)
 		 * 1. try to reuse a free one.
 		 */
 		p = findpg(pa->head, color);
-		if(p != nil)
+		if(p != nil){
+			pageunchain(p);
 			break;
+		}
+		unlock(&pga);
 
 		/*
 		 * 2. try to allocate a new one from physical memory
 		 */
 		p = pgalloc(size, color);
 		if(p != nil){
-			pagechainhead(p);
-			break;
+			p->va = va;
+			p->daddr = ~0;
+			goto Clear;
 		}
 
 		/*
 		 * 3. out of memory, try with the pager.
 		 * but release the segment (if any) while in the pager.
 		 */
-		unlock(&pga);
 
 		dontalloc = 0;
-		if(s && *s) {
+		if(s != nil && *s != nil) {
 			qunlock(&((*s)->lk));
-			*s = 0;
+			*s = nil;
 			dontalloc = 1;
 		}
 
-		/*
-		 * Try to get any page of the desired color
-		 * or any color for NOCOLOR.
-		 */
 		kickpager(si, color);
 
 		/*
@@ -258,15 +257,10 @@ newpage(int clear, Segment **s, uintptr va, usize size, int color)
 		 * reacquired the segment locks
 		 */
 		if(dontalloc)
-			return 0;
+			return nil;
 
 		lock(&pga);
 	}
-
-	assert(p != nil);
-	ct = PG_NEWCOL;
-
-	pageunchain(p);
 
 	lock(p);
 	if(p->ref != 0)
@@ -276,11 +270,13 @@ newpage(int clear, Segment **s, uintptr va, usize size, int color)
 	p->ref++;
 	p->va = va;
 	p->modref = 0;
+	p->daddr = ~0;
 	for(i = 0; i < nelem(p->cachectl); i++)
-		p->cachectl[i] = ct;
+		p->cachectl[i] = PG_NEWCOL;
 	unlock(p);
 	unlock(&pga);
 
+Clear:
 	if(clear) {
 		k = kmap(p);
 		memset((void*)VA(k), 0, m->pgsz[p->pgszi]);
@@ -325,9 +321,9 @@ putpage(Page *p)
 	if(pga.r.p != nil)
 		wakeup(&pga.r);
 	unlock(p);
+	unlock(&pga);
 	if(rlse)
 		pgfree(p);
-	unlock(&pga);
 }
 
 /*
@@ -337,13 +333,15 @@ putpage(Page *p)
  * The interface must specify page size.
  */
 Page*
-auxpage(usize size)
+auxpage(usize size, int color)
 {
 	Page *p;
 	Pgsza *pa;
 	int si;
 
 	si = getpgszi(size);
+	if(si == -1)
+		panic("auxpage: getpgszi %lux %d %#p", size, color, getcallerpc(&size));
 	lock(&pga);
 	pa = &pga.pgsza[si];
 	p = pa->head;
@@ -361,98 +359,6 @@ auxpage(usize size)
 	unlock(&pga);
 
 	return p;
-}
-
-static int dupretries = 15000;
-
-int
-duppage(Page *p)				/* Always call with p locked */
-{
-	Pgsza *pa;
-	Page *np;
-	int color;
-	int retries;
-
-	retries = 0;
-retry:
-
-	if(retries++ > dupretries){
-		print("duppage %d, up %#p\n", retries, up);
-		dupretries += 100;
-		if(dupretries > 100000)
-			panic("duppage");
-		uncachepage(p);
-		return 1;
-	}
-
-	/* don't dup pages with no image */
-	if(p->ref == 0 || p->image == nil || p->image->notext)
-		return 0;
-
-	/*
-	 *  normal lock ordering is to call
-	 *  lock(&pga) before lock(p).
-	 *  To avoid deadlock, we have to drop
-	 *  our locks and try again.
-	 */
-	if(!canlock(&pga)){
-		unlock(p);
-		if(up)
-			sched();
-		lock(p);
-		goto retry;
-	}
-
-	pa = &pga.pgsza[p->pgszi];
-	/* No freelist cache when memory is very low */
-	if(pa->freecount < Nminfree){
-		unlock(&pga);
-		uncachepage(p);
-		return 1;
-	}
-
-	color = p->color;
-	for(np = pa->head; np; np = np->next)
-		if(np->color == color)
-			break;
-
-	/* No page of the correct color */
-	if(np == nil){
-		unlock(&pga);
-		uncachepage(p);
-		return 1;
-	}
-
-	pageunchain(np);
-	pagechaintail(np);
-	/*
-	 * XXX - here's a bug? - np is on the freelist but it's not really free.
-	 * when we unlock palloc someone else can come in, decide to
-	 * use np, and then try to lock it.  they succeed after we've
-	 * run copypage and cachepage and unlock(np).  then what?
-	 * they call pageunchain before locking(np), so it's removed
-	 * from the freelist, but still in the cache because of
-	 * cachepage below.  if someone else looks in the cache
-	 * before they remove it, the page will have a nonzero ref
-	 * once they finally lock(np).
-	 *
-	 * What I know is that not doing the pagechaintail, but
-	 * doing it at the end, to prevent the race, leads to a
-	 * deadlock, even following the pga, pg lock ordering. -nemo
-	 */
-	lock(np);
-	unlock(&pga);
-
-	/* Cache the new version */
-	uncachepage(np);
-	np->va = p->va;
-	np->daddr = p->daddr;
-	copypage(p, np);
-	cachepage(np, p->image);
-	unlock(np);
-	uncachepage(p);
-
-	return 0;
 }
 
 void
@@ -474,7 +380,7 @@ uncachepage(Page *p)			/* Always called with a locked page */
 {
 	Page **l, *f;
 
-	if(p->image == 0)
+	if(p->image == nil)
 		return;
 
 	lock(&pga.hashlock);
@@ -482,14 +388,16 @@ uncachepage(Page *p)			/* Always called with a locked page */
 	for(f = *l; f; f = f->hash){
 		if(f == p){
 			*l = p->hash;
-			break;
+			goto found;
 		}
 		l = &f->hash;
 	}
+	panic("uncachpage");
+found:
 	unlock(&pga.hashlock);
 	putimage(p->image);
 	p->image = 0;
-	p->daddr = 0;
+	p->daddr = ~0;
 }
 
 void
@@ -511,30 +419,6 @@ cachepage(Page *p, Image *i)
 	l = &pghash(p->daddr);
 	p->hash = *l;
 	*l = p;
-	unlock(&pga.hashlock);
-}
-
-void
-cachedel(Image *i, ulong daddr)
-{
-	Page *f, **l;
-
-	lock(&pga.hashlock);
-	l = &pghash(daddr);
-	for(f = *l; f; f = f->hash){
-		if(f->image == i && f->daddr == daddr){
-			lock(f);
-			if(f->image == i && f->daddr == daddr){
-				*l = f->hash;
-				putimage(f->image);
-				f->image = nil;
-				f->daddr = 0;
-			}
-			unlock(f);
-			break;
-		}
-		l = &f->hash;
-	}
 	unlock(&pga.hashlock);
 }
 
@@ -568,37 +452,33 @@ lookpage(Image *i, ulong daddr)
 	return nil;
 }
 
-/*
- * Called from imagereclaim, to try to release Images.
- * The argument shows the preferred image to release pages from.
- * All images will be tried, from lru to mru.
- */
-uvlong
-pagereclaim(Image *i)
+/* Called from imagereclaim, to try to release Images */
+uint
+pagereclaim(void)
 {
+	int lg, n;
+	usize sz;
 	Page *p;
-	uvlong ticks;
 
 	lock(&pga);
-	ticks = fastticks(nil);
-
-	/*
-	 * All the pages with images backing them are at the
-	 * end of the list (see putpage) so start there and work
-	 * backward.
-	 */
-	for(p = pga.pgsza[0].tail; p && p->image == i; p = p->prev){
-		if(p->ref == 0 && canlock(p)){
-			if(p->ref == 0) {
-				uncachepage(p);
+	sz = 0;
+	n = 0;
+	for(lg = 0; lg < m->npgsz; lg++){
+		for(p = pga.pgsza[lg].tail; p != nil; p = p->prev){
+			if(p->image != nil && p->ref == 0 && canlock(p)){
+				if(p->ref == 0) {
+					n++;
+					sz += 1<<m->pgszlg2[lg];
+					uncachepage(p);
+				}
+				unlock(p);
 			}
-			unlock(p);
+			if(sz >= 20*MiB && n>5)
+				break;
 		}
 	}
-	ticks = fastticks(nil) - ticks;
 	unlock(&pga);
-
-	return ticks;
+	return sz;
 }
 
 Pte*
@@ -611,14 +491,10 @@ ptecpy(Segment *s, Pte *old)
 	dst = &new->pages[old->first-old->pages];
 	new->first = dst;
 	for(src = old->first; src <= old->last; src++, dst++)
-		if(*src){
-			if(onswap(*src))
-				panic("ptecpy: no swap");
-			else{
-				lock(*src);
-				(*src)->ref++;
-				unlock(*src);
-			}
+		if(*src != nil){
+			lock(*src);
+			(*src)->ref++;
+			unlock(*src);
 			new->last = dst;
 			*dst = *src;
 		}
@@ -659,7 +535,7 @@ freepte(Segment *s, Pte *p)
 		}
 		for(pg = p->pages; pg < ptop; pg++) {
 			pt = *pg;
-			if(pt == 0)
+			if(pt == nil)
 				continue;
 			lock(pt);
 			ref = --pt->ref;

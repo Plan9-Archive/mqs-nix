@@ -55,8 +55,8 @@ addwaitstat(uintptr pc, uvlong t0, int type)
 		if((s = waitstats.stat + i)->pc == pc){
 			ainc(&s->count);
 			if(w > s->maxwait)
-				s->maxwait = w;		/* race but ok */
-			s->cumwait += w;		/* race but ok */
+				s->maxwait = w;		/* race */
+			s->cumwait += w;		/* race */
 			return;
 		}
 
@@ -68,7 +68,7 @@ addwaitstat(uintptr pc, uvlong t0, int type)
 		if((s = waitstats.stat + i)->pc == pc){
 			ainc(&s->count);
 			if(w > s->maxwait)
-				s->maxwait = w;		/* race but ok */
+				s->maxwait = w;		/* race */
 			s->cumwait += w;
 			unlock(&waitstatslk);
 			return;
@@ -89,15 +89,6 @@ addwaitstat(uintptr pc, uvlong t0, int type)
 
 	unlock(&waitstatslk);
 }
-
-
-/*
- * reported times can be translated to a more readable format by
- * using something like:
- * awk '{printf("print(\"%s: %s times; %s us worst; %s ws total\");\nsrc(%s)\n",
- *	 $1, $3, $4, $5, $2); }'  | acid ../k10/9cpu
- * on the wsdata file, after doing a sort +2nr on it.
- */
 
 enum{
 	WSdirqid,

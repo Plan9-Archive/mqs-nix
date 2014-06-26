@@ -159,15 +159,17 @@ rtctime(void)
 	ilock(&nvrtlock);
 
 	/* loop till we get two reads in a row the same */
+	ot = 0;
 	t = rtcextract();
 	for(i = 0; i < 100; i++){
-		ot = rtcextract();
+		ot = t;
+		t = rtcextract();
 		if(ot == t)
 			break;
 	}
 	iunlock(&nvrtlock);
-
-	if(i == 100) print("we are boofheads\n");
+	if(i == 100)
+		print("rtc clock changes underfoot %ld %ld\n", ot, t);
 
 	return t;
 }
@@ -220,7 +222,7 @@ rtcread(Chan* c, void* buf, long n, vlong off)
 #define PUTBCD(n,o) bcdclock[o] = (n % 10) | (((n / 10) % 10)<<4)
 
 static long	 
-rtcwrite(Chan* c, void* buf, long n, vlong off)
+rtcwrite(Chan* c, void* buf, long n, vlong offset)
 {
 	int t;
 	char *a, *start;
@@ -228,13 +230,11 @@ rtcwrite(Chan* c, void* buf, long n, vlong off)
 	ulong secs;
 	uchar bcdclock[Nbcd];
 	char *cp, *ep;
-	ulong offset = off;
 
 	if(offset!=0)
 		error(Ebadarg);
 
-
-	switch((ulong)c->qid.path){
+	switch((uint)c->qid.path){
 	case Qrtc:
 		/*
 		 *  read the time
@@ -456,5 +456,20 @@ nvramwrite(int addr, uchar data)
 	ilock(&nvrtlock);
 	outb(Paddr, addr);
 	outb(Pdata, data);
+	iunlock(&nvrtlock);
+}
+
+void
+nmienable(void)
+{
+	int x;
+
+	ilock(&nvrtlock);
+	outb(0x70, 0x80);		/* NMI latch clear */
+	outb(0x70, 0);
+
+	x = inb(0x61) & 0x07;		/* Enable NMI */
+	outb(0x61, 0x08|x);
+	outb(0x61, x);
 	iunlock(&nvrtlock);
 }

@@ -41,14 +41,14 @@ struct Ctlr
 	Eopio*	opio;		/* Operational i/o regs */
 
 	int	nframes;	/* 1024, 512, or 256 frames in the list */
-	ulong*	frames;		/* periodic frame list (hw) */
+	u32int*	frames;		/* periodic frame list (hw) */
 	Qh*	qhs;		/* async Qh circular list for bulk/ctl */
 	Qtree*	tree;		/* tree of Qhs for the periodic list */
 	int	ntree;		/* number of dummy qhs in tree */
 	Qh*	intrqhs;		/* list of (not dummy) qhs in tree  */
 	Isoio*	iso;		/* list of active Iso I/O */
-	ulong	load;
-	ulong	isoload;
+	uint	load;
+	uint	isoload;
 	int	nintr;		/* number of interrupts attended */
 	int	ntdintr;	/* number of intrs. with something to do */
 	int	nqhintr;	/* number of async td intrs. */
@@ -62,16 +62,16 @@ struct Ctlr
  */
 struct Eopio
 {
-	ulong	cmd;		/* 00 command */
-	ulong	sts;		/* 04 status */
-	ulong	intr;		/* 08 interrupt enable */
-	ulong	frno;		/* 0c frame index */
-	ulong	seg;		/* 10 bits 63:32 of EHCI datastructs (unused) */
-	ulong	frbase;		/* 14 frame list base addr, 4096-byte boundary */
-	ulong	link;		/* 18 link for async list */
+	u32int	cmd;		/* 00 command */
+	u32int	sts;		/* 04 status */
+	u32int	intr;		/* 08 interrupt enable */
+	u32int	frno;		/* 0c frame index */
+	u32int	seg;		/* 10 bits 63:32 of EHCI datastructs (unused) */
+	u32int	frbase;		/* 14 frame list base addr, 4096-byte boundary */
+	u32int	link;		/* 18 link for async list */
 	uchar	d2c[0x40-0x1c];	/* 1c dummy */
-	ulong	config;		/* 40 1: all ports default-routed to this HC */
-	ulong	portsc[1];	/* 44 Port status and control, one per port */
+	u32int	config;		/* 40 1: all ports default-routed to this HC */
+	u32int	portsc[1];	/* 44 Port status and control, one per port */
 };
 
 extern int ehcidebug;

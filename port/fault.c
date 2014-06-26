@@ -148,22 +148,18 @@ fixfault(Segment *s, uintptr addr, int read, int dommuput, int color)
 		lock(lkp);
 
 		ref = lkp->ref;
-		if(ref > 1) {
+		if(ref == 0)
+			panic("mach%d: %s %d fault %#p ref == 0", m->machno, up->text, up->pid, lkp);
+		if(ref == 1 && lkp->image == nil)
 			unlock(lkp);
-
+		else{
+			unlock(lkp);
 			new = newpage(0, &s, addr, pgsz, color);
-			if(s == 0)
+			if(s == nil)
 				return -1;
 			*pg = new;
 			copypage(lkp, *pg);
 			putpage(lkp);
-		}
-		else {
-			/* save a copy of the original for the image cache */
-			if(lkp->image != nil)
-				duppage(lkp);
-
-			unlock(lkp);
 		}
 		mmuattr = PTEWRITE|PTEVALID;
 		(*pg)->modref = PG_MOD|PG_REF;
@@ -225,8 +221,8 @@ pio(Segment *s, uintptr addr, usize soff, Page **p, int color)
 			*p = new;
 			return;
 		}
-//iprint("pio: (%s) %#.4ux %#P %#lux	pgsz=%#P\n", chanpath(s->image->c), s->type, addr, soff, pgsz);
 		c = s->image->c;
+//iprint("pio: (%s) %#.4ux %#P %#lux	pgsz=%#P\n", chanpath(c), s->type, addr, soff, pgsz);
 		ask = s->flen-soff;
 
 		if(ask < 0){

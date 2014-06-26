@@ -49,6 +49,7 @@ lock(Lock *l)
 		l->pc = pc;
 		l->p = up;
 		l->isilock = 0;
+		l->m = MACHP(m->machno);
 		if(LOCKCYCLES)
 			cycles(&l->lockcycles);
 
@@ -86,6 +87,7 @@ lock(Lock *l)
 			l->pc = pc;
 			l->p = up;
 			l->isilock = 0;
+			l->m = MACHP(m->machno);
 			if(LOCKCYCLES)
 				cycles(&l->lockcycles);
 			if(l != &waitstatslk)
@@ -105,6 +107,8 @@ ilock(Lock *l)
 	uvlong t0;
 
 	pc = getcallerpc(&l);
+	if(l == nil)
+		panic("ilock nil %#p", pc);
 	lockstats.locks++;
 
 	pl = splhi();
@@ -157,7 +161,7 @@ canlock(Lock *l)
 		up->lastlock = l;
 	l->pc = getcallerpc(&l);
 	l->p = up;
-	l->m = m;
+	l->m = MACHP(m->machno);
 	l->isilock = 0;
 	if(LOCKCYCLES)
 		cycles(&l->lockcycles);
@@ -220,7 +224,7 @@ iunlock(Lock *l)
 	if(islo())
 		print("iunlock while lo: pc %#p, held by %#p\n", getcallerpc(&l), l->pc);
 	if(l->m != m){
-		print("iunlock by cpu%d, locked by cpu%d: pc %#p, held by %#p\n",
+		print("iunlock by mach%d, locked by mach%d: pc %#p, held by %#p\n",
 			m->machno, l->m->machno, getcallerpc(&l), l->pc);
 	}
 

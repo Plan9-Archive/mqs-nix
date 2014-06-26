@@ -162,6 +162,7 @@ struct Ctlr {
 	Drive*	drive[NCtlrdrv];
 	int	ndrive;
 	uint	pi;
+	void	*vector;
 };
 
 static	Ctlr	iactlr[NCtlr];
@@ -312,9 +313,9 @@ ahciportreset(Aportc *c, uint mode)
 			break;
 		asleep(25);
 	}
-	p->sctl = 3*Aipm | 0*Aspd | Adet;
+	p->sctl = 7*Aipm | 0*Aspd | Adet;
 	delay(1);
-	p->sctl = 3*Aipm | mode*Aspd;
+	p->sctl = 7*Aipm | mode*Aspd;
 	return 0;
 }
 
@@ -468,7 +469,7 @@ ahciwakeup(Aportc *c, uint mode)
 		return;
 	}
 	ahciportreset(c, mode);
-//	iprint("ahci: wake %.3ux -> %.3lux\n", s, c->p->sstatus);
+//	iprint("ahci: wake %.3ux -> %.3ux\n", s, c->p->sstatus);
 }
 
 static int
@@ -506,10 +507,10 @@ ahciconfigdrive(Ahba *h, Aportc *c, int mode)
 
 	p->serror = SerrAll;
 
-	if((p->sstatus & SSmask) == (Isleepy | Spresent))
+	if((p->sstatus & SSmask) == (Isleep | Isleepy | Spresent))
 		ahciwakeup(c, mode);
 	/* disable power managment sequence from book. */
-	p->sctl = 3*Aipm | mode*Aspd | 0*Adet;
+	p->sctl = 7*Aipm | mode*Aspd | 0*Adet;
 	p->cmd &= ~Aalpe;
 
 	p->cmd |= Ast;
@@ -570,7 +571,7 @@ ahcihbareset(Ahba *h)
 
 	h->ghc |= Hhr;
 	for(wait = 0; wait < 1000; wait += 100){
-		if(h->ghc == 0)
+		if((h->ghc & Hhr) == 0)
 			return 0;
 		delay(100);
 	}
@@ -1286,7 +1287,7 @@ iaenable(SDev *s)
 			panic("iaenable: zero s->ctlr->ndrive");
 		pcisetbme(c->pci);
 		snprint(name, sizeof name, "%s (%s)", s->name, s->ifc->name);
-		intrenable(c->pci->intl, iainterrupt, c, c->pci->tbdf, name);
+		c->vector = intrenable(c->pci->intl, iainterrupt, c, c->pci->tbdf, name);
 		/* supposed to squelch leftover interrupts here. */
 		ahcienable(c->hba);
 		c->enabled = 1;
@@ -1300,17 +1301,12 @@ iaenable(SDev *s)
 static int
 iadisable(SDev *s)
 {
-	char name[32];
 	Ctlr *c;
 
 	c = s->ctlr;
-	ilock(c);
-	ahcidisable(c->hba);
-	snprint(name, sizeof name, "%s (%s)", s->name, s->ifc->name);
-	print("missing the intrdisable because intrdisable is wierd\n");
-//	intrdisable(c->pci->intl, iainterrupt, c, c->pci->tbdf, name);
 	c->enabled = 0;
-	iunlock(c);
+	ahcidisable(c->hba);
+	intrdisable(c->vector);
 	return 1;
 }
 
@@ -1774,7 +1770,7 @@ didtype(Pcidev *p)
 	type = Tahci;
 	switch(p->vid){
 	default:
-		return -1;
+		break;
 	case 0x8086:
 		for(i = 0; i < nelem(itab); i += 3)
 			if((p->did & itab[i]) == itab[i+1])
@@ -1793,11 +1789,6 @@ didtype(Pcidev *p)
 		 */
 		if(p->did == 0x3349)
 			return Tahci;
-		break;
-	case 0x10de:
-	case 0x1039:
-	case 0x1b4b:
-	case 0x11ab:
 		break;
 	case 0x197b:
 	case 0x10b9:
@@ -1839,7 +1830,8 @@ loop:
 		s = sdevs + niactlr;
 		memset(c, 0, sizeof *c);
 		memset(s, 0, sizeof *s);
-		io = p->mem[Abar].bar & ~0xf;
+		c->type = cttab + type;
+		io = p->mem[Abar].bar & ~(uintmem)0xf;
 		c->mmio = vmap(io, p->mem[Abar].size);
 		if(c->mmio == nil){
 			print("%s: %T: address %#P in use\n",
@@ -1848,7 +1840,6 @@ loop:
 		}
 		c->lmmio = (u32int*)c->mmio;
 		c->pci = p;
-		c->type = cttab + type;
 
 		s->ifc = &sdahciifc;
 		s->idno = 'E';
@@ -1885,7 +1876,7 @@ loop:
 			d->ctlr = c;
 			if((c->pi & 1<<i) == 0)
 				continue;
-			snprint(d->name, sizeof d->name, "iahci%d.%d", niactlr, i);
+			snprint(d->name, sizeof d->name, "ahci%d.%d", niactlr, i);
 			d->port = (Aport*)(c->mmio + 0x80*i + 0x100);
 			d->portc.p = d->port;
 			d->portc.m = &d->portm;
@@ -1975,7 +1966,7 @@ iarctl(SDunit *u, char *p, int l)
 	p = capfmt(p, e, ctab, nelem(ctab), o->cmd);
 	p = seprint(p, e, "\n");
 	p = seprint(p, e, "mode\t%s %s\n", modes[d->mode], modes[maxmode(c)]);
-	p = seprint(p, e, "geometry %llud %lud\n", u->sectors, u->secsize);
+	p = seprint(p, e, "geometry %llud %ud\n", u->sectors, u->secsize);
 	return p - op;
 }
 
@@ -2073,6 +2064,9 @@ static Htab htab[] = {
 };
 
 static Htab htab2[] = {
+	Dseo,	"dseo",
+	Sadm,	"sadm",
+	Sds,	"sds",
 	Apts,	"apts",
 	Nvmp,	"nvmp",
 	Boh,	"boh",

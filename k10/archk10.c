@@ -3,6 +3,49 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
+#include "adr.h"
+#include "io.h"
+#include "apic.h"
+
+u64int (*monmwait64)(u64int*, uintptr) = nopmonmwait64;
+u32int (*monmwait32)(u32int*, u32int) = nopmonmwait32;
+
+u64int
+nopmonmwait64(u64int *p, u64int v)
+{
+	if(*(u64int*)p == v)
+		pause();
+	return *(u64int*)p;
+}
+
+u32int
+nopmonmwait32(u32int *p, u32int v)
+{
+	if(*(u32int*)p == v)
+		pause();
+	return *(u32int*)p;
+}
+
+void
+enableextpci(void)
+{
+	u32int info[4];
+	u64int msr;
+
+	cpuid(0, 0, info);
+	if(memcmp(&info[1], "AuthcAMDenti", 12) == 0){
+		cpuid(1, 0, info);
+		switch(info[0] & 0x0fff0ff0){
+		case 0x00100f40:		/* phenom ii x4 */
+		case 0x00100f90:		/* K10 */
+		case 0x00000620:		/* QEMU64 */
+		case 0x00600f20:		 /* steamroller fx-8320 */
+			msr = rdmsr(0xc001001f);
+			msr |= 1ull<<46;	/* allow extended pci access */
+			wrmsr(0xc001001f, msr);
+		}
+	}
+}
 
 static void
 k10archinit(void)
@@ -10,8 +53,11 @@ k10archinit(void)
 	u32int info[4];
 
 	cpuid(1, 0, info);
-	if(info[2] & 8)
-		mwait = k10mwait;
+	if(info[2] & 8){
+		monmwait64 = k10monmwait64;
+		monmwait32 = k10monmwait32;
+	}
+	enableextpci();
 }
 
 static int
@@ -69,6 +115,30 @@ intelbshz(void)
 	return atoi(h-5)*scale;
 }
 
+enum {
+	PciADDR		= 0xcf8,
+	PciDATA		= 0xcfc,
+};
+
+uint
+pciread(uint tbdf, int r, int w)
+{
+	int o, er;
+
+	o = r & 4-w;
+	er = r&0xfc | (r & 0xf00)<<16;
+	outl(PciADDR, 0x80000000|BUSBDF(tbdf)|er);
+	switch(w){
+	default:
+	case 1:
+		return inb(PciDATA+o);
+	case 2:
+		return ins(PciDATA+o);
+	case 4:
+		return inl(PciDATA+o);
+	}
+}
+
 static vlong
 cpuidhz(void)
 {
@@ -86,7 +156,10 @@ cpuidhz(void)
 		cpuid(1, 0, info);
 		switch(info[0] & 0x0fff0ff0){
 		default:
-			return 0;
+			iprint("cpuidhz: BUG: HZ unknown for %.8ux: guess 2.5Ghz\n",
+				info[0] & 0x0fff0ff0);
+			hz = 2500000000;
+			break;
 		case 0x00000f50:		/* K8 */
 			msr = rdmsr(0xc0010042);
 			if(msr == 0)
@@ -98,6 +171,16 @@ cpuidhz(void)
 		case 0x00000620:		/* QEMU64 */
 			msr = rdmsr(0xc0010064);
 			r = (msr>>6) & 0x07;
+			hz = (((msr & 0x3f)+0x10)*100000000ll)/(1<<r);
+			break;
+		case 0x00600f20:		 /* steamroller fx-8320 */
+			r = MKBUS(BusPCI, 0, 0x18, 4);
+			r = pciread(r, 0x15c+4, 4)>>16 & 7;
+			if(r != 2){
+				print("r != 2 (%d)\n", r);
+				r = 2;
+			}
+			msr = rdmsr(0xc0010064 + r);
 			hz = (((msr & 0x3f)+0x10)*100000000ll)/(1<<r);
 			break;
 		}
@@ -115,10 +198,10 @@ archhz(void)
 
 	assert(m->machno == 0);
 	k10archinit();		/* botch; call from archinit */
-	if((hz = cpuidhz()) != 0)
-		return hz;
-	panic("hz 0");
-	return 0;
+	hz = cpuidhz();
+	if(hz == 0)
+		panic("hz 0");
+	return hz;
 }
 
 static void
@@ -144,67 +227,10 @@ archmmu(void)
 	/*
 	 * Check the Page1GB bit in function 0x80000001 DX for 1*GiB support.
 	 */
-	if(cpuid(0x80000001, 0, info) && (info[3] & 0x04000000))
+	cpuid(0x80000001, 0, info);
+	if(info[3] & 0x04000000)
 		addmachpgsz(30);
 	return m->npgsz;
-}
-
-int
-fmtP(Fmt* f)
-{
-	uintmem pa;
-
-	pa = va_arg(f->args, uintmem);
-
-	if(sizeof(uintmem) <= 4 /* || (pa & ~(uintmem)0xffffffff) == 0 */){
-		if(f->flags & FmtSharp)
-			return fmtprint(f, "%#.8ux", (u32int)pa);
-		return fmtprint(f, "%ud", (u32int)pa);
-	}
-
-	if(f->flags & FmtSharp)
-		return fmtprint(f, "%#.16llux", (u64int)pa);
-	return fmtprint(f, "%llud", (u64int)pa);
-}
-
-int
-fmtR(Fmt* f)
-{
-	u64int r;
-
-	r = va_arg(f->args, u64int);
-
-	return fmtprint(f, "%#16.16llux", r);
-}
-
-/* virtual address fmt */
-static int
-fmtW(Fmt *f)
-{
-	u64int va;
-
-	va = va_arg(f->args, u64int);
-	return fmtprint(f, "%#llux=0x[%llux][%llux][%llux][%llux][%llux]", va,
-		PTLX(va, 3), PTLX(va, 2), PTLX(va, 1), PTLX(va, 0),
-		va & ((1<<PGSHIFT)-1));
-}
-
-void
-archfmtinstall(void)
-{
-	/*
-	 * Architecture-specific formatting. Not as neat as they
-	 * could be (e.g. there's no defined type for a 'register':
-	 *	P - uintmem, physical address
-	 *	R - register
-	 * With a little effort these routines could be written
-	 * in a fairly architecturally-independent manner, relying
-	 * on the compiler to optimise-away impossible conditions,
-	 * and/or by exploiting the innards of the fmt library.
-	 */
-	fmtinstall('P', fmtP);
-//	fmtinstall('R', fmtR);
-//	fmtinstall('W', fmtW);
 }
 
 void
@@ -214,7 +240,7 @@ microdelay(int µs)
 
 	r = rdtsc();
 	for(t = r + m->cpumhz*µs; r < t; r = rdtsc())
-		;
+		pause();
 }
 
 void
@@ -224,5 +250,33 @@ delay(int ms)
 
 	r = rdtsc();
 	for(t = r + m->cpumhz*1000ull*ms; r < t; r = rdtsc())
-		;
+		pause();
+}
+
+static void
+pcireservemem(void)
+{
+	int i;
+	Pcidev *p;
+	
+	for(p = nil; p = pcimatch(p, 0, 0); )
+		for(i=0; i<nelem(p->mem); i++)
+			if(p->mem[i].bar && (p->mem[i].bar&1) == 0)
+				adrmapinit(p->mem[i].bar&~(uintmem)0xf, p->mem[i].size, Apcibar, Mfree, Cnone);
+}
+
+void
+archpciinit(void)
+{
+	pcireservemem();
+}
+
+/* no deposit, no return */
+void
+ndnr(void)
+{
+	splhi();
+	lapicpri(0xff);
+	for(;;)
+		hardhalt();
 }

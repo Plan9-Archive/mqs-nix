@@ -27,15 +27,19 @@ enum {
 	Width		= 80*2,
 	Height		= 25,
 
-	Postcodelen	= 2,
-	Postlen		= Postcodelen,
+	Postlen		= 2,
 };
 
 #define CGA		(BIOSSEG(0xb800))
 
-static Lock cgalock;
-static int cgapos;
-static int cgainitdone;
+struct {
+	Lock;
+	int	pos;
+	int	initdone;
+	uchar	blankline[Width];
+	uchar	fb[Width*Height];
+	uchar	*cga;
+} cga;
 
 static Rune ibm437[256] = {
 0x2007, 0x263a, 0x263b, 0x2665, 0x2666, 0x2663, 0x2660, 0x2022,
@@ -89,37 +93,37 @@ cgaregw(int index, int data)
 static void
 cgacursor(void)
 {
-	uchar *cga;
-
-	cgaregw(0x0e, (cgapos/2>>8) & 0xff);
-	cgaregw(0x0f, cgapos/2 & 0xff);
-
-	cga = CGA;
-	cga[cgapos+1] = Attr;
+	cgaregw(0x0e, (cga.pos/2>>8) & 0xff);
+	cgaregw(0x0f, cga.pos/2 & 0xff);
+	cga.cga[cga.pos+1] = Attr;
 }
 
 static void
-cgaputr(Rune c)
+cgaredraw(void)
+{
+	memmove(cga.cga, cga.fb, Width*Height-Postlen*2);
+}
+
+static void
+cgaputr(Rune c, int fb)
 {
 	int i;
-	uchar *cga, *p;
-
-	cga = CGA;
+	uchar *p;
 
 	if(c == '\n'){
-		cgapos = cgapos/Width;
-		cgapos = (cgapos+1)*Width;
+		cga.pos = cga.pos/Width;
+		cga.pos = (cga.pos+1)*Width;
 	}
 	else if(c == '\t'){
-		i = 8 - ((cgapos/2)&7);
+		i = 8 - ((cga.pos/2)&7);
 		while(i-- > 0)
-			cgaputr(' ');
+			cgaputr(' ', fb);
 	}
 	else if(c == '\b'){
-		if(cgapos >= 2)
-			cgapos -= 2;
-		cgaputr(' ');
-		cgapos -= 2;
+		if(cga.pos >= 2)
+			cga.pos -= 2;
+		cgaputr(' ', fb);
+		cga.pos -= 2;
 	}
 	else{
 		if(c < ' ' || c >= 127)
@@ -133,58 +137,83 @@ cgaputr(Rune c)
 					break;
 				}
 			}
-		cga[cgapos++] = c;
-		cga[cgapos++] = Attr;
-	}
-	if(cgapos >= (Width*Height)-Postlen*2){
-		memmove(cga, &cga[Width], Width*(Height-1));
-		p = &cga[Width*(Height-1)-Postlen*2];
-		for(i = 0; i < Width/2; i++){
-			*p++ = ' ';
-			*p++ = Attr;
+		cga.fb[cga.pos++] = c;
+		cga.fb[cga.pos++] = Attr;
+		if(!fb){
+			cga.cga[cga.pos-2] = c;
+			cga.cga[cga.pos-1] = Attr;
 		}
-		cgapos -= Width;
 	}
-	cgacursor();
+	if(cga.pos >= (Width*Height)-Postlen*2){
+		memmove(cga.fb, &cga.fb[Width], Width*(Height-1));
+		p = &cga.fb[Width*(Height-1)-Postlen*2];
+		memmove(p, cga.blankline, Width);
+		cga.pos -= Width;
+		if(!fb)
+			memmove(cga.cga, cga.fb, Width*Height-Postlen*2);
+	}
 }
 
 void
 cgaconsputs(char* s, int n)
 {
-	int i;
+	int i, fb;
 	Rune r;
 
-	ilock(&cgalock);
+	if(sys->novga || cga.initdone == 0)
+		return;
+	ilock(&cga);
+	fb = n>=Width/4;
 	while(n > 0 && fullrune(s, n)){
 		i = chartorune(&r, s);
 		n -= i;
 		s += i;
-		cgaputr(r);
+		cgaputr(r, fb);
 	}
-	iunlock(&cgalock);
+	if(fb)
+		cgaredraw();
+	cgacursor();
+	iunlock(&cga);
 }
 
 void
 cgapost(int code)
 {
-	uchar *cga;
-
+	uchar *p;
 	static char hex[] = "0123456789ABCDEF";
 
-	cga = CGA;
-	cga[Width*Height-Postcodelen*2] = hex[(code>>4) & 0x0f];
-	cga[Width*Height-Postcodelen*2+1] = Attr;
-	cga[Width*Height-Postcodelen*2+2] = hex[code & 0x0f];
-	cga[Width*Height-Postcodelen*2+3] = Attr;
+	if(sys->novga)
+		return;
+	ilock(&cga);
+	p = (uchar*)CGA + Width*Height-Postlen*2;
+	p[0] = hex[(code>>4) & 0x0f];
+	p[1] = Attr;
+	p[2] = hex[code & 0x0f];
+	p[3] = Attr;
+	iunlock(&cga);
 }
 
 void
 cgainit(void)
 {
-	ilock(&cgalock);
-	cgapos = cgaregr(0x0e)<<8;
-	cgapos |= cgaregr(0x0f);
-	cgapos *= 2;
-	cgainitdone = 1;
-	iunlock(&cgalock);
+	char *s;
+	uchar *p, *e;
+
+	if((s = getconf("*novga")) != nil)
+		sys->novga = atoi(s);
+	if(sys->novga)
+		return;
+	ilock(&cga);
+	cga.pos = cgaregr(0x0e)<<8;
+	cga.pos |= cgaregr(0x0f);
+	cga.pos *= 2;
+	cga.cga = CGA;
+	e = cga.blankline + Width;
+	for(p = cga.blankline; p < e; ){
+		*p++ = ' ';
+		*p++ = Attr;
+	}
+	memmove(cga.fb, cga.cga, Width*Height);
+	cga.initdone = 1;
+	iunlock(&cga);
 }

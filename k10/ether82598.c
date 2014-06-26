@@ -217,7 +217,7 @@ struct Stat {
 	char	*name;
 };
 
-Stat stattab[] = {
+static Stat stattab[] = {
 	0x4000,	"crc error",
 	0x4004,	"illegal byte",
 	0x4008,	"short packet",
@@ -229,6 +229,8 @@ Stat stattab[] = {
 	0xcf60,	"xon rx",
 	0x3f68,	"xoff tx",
 	0xcf68,	"xoff rx",
+	0x41a4,	"xon rx",			/* x540 only */
+	0x41a8,	"xoff rx",			/* x540 only */
 	0x405c,	"rx 040",
 	0x4060,	"rx 07f",
 	0x4064,	"rx 100",
@@ -256,10 +258,16 @@ Stat stattab[] = {
 };
 
 uchar statmask[Nctlrtype][nelem(stattab)] = {
+[i82598][11]	= 1,
+[i82598][12]	= 1,
 [i82599][7]	= 1,
 [i82599][8]	= 1,
 [i82599][9]	= 1,
 [i82599][10]	= 1,
+[i82599][11]	= 1,
+[i82599][12]	= 1,
+[x540][8]		= 1,
+[x540][10]	= 1,
 };
 
 /* status */
@@ -374,7 +382,7 @@ static	Lock	rblock[Nctlr];
 static	Rbpool	rbtab[Nctlr];
 static	int	nctlr;
 
-char*
+static char*
 cname(Ctlr *c)
 {
 	return cttab[c->type].name;
@@ -461,7 +469,6 @@ loop:
 	}
 	c->speeds[i]++;
 	e->mbps = speedtab[i];
-	c->lim = 0;
 	if(cttab[c->type].flag & Fphyoc)
 		im(c, Lsc|Ioc);
 	else
@@ -537,9 +544,10 @@ rbfree(Block *b, int t)
 			iprint("wakey %d; %d %d\n", t, p->nstarve, p->nwakey);
 		p->nwakey++;
 		p->starve = 0;
+		iunlock(p);
 		wakeup(p);
-	}
-	iunlock(p);
+	}else
+		iunlock(p);
 }
 
 static void
@@ -644,8 +652,8 @@ transmit(Ether *e)
 		if(!(b = qget(e->oq)))
 			break;
 		t = c->tdba+tdt;
-		t->addr[0] = PCIWADDR(b->rp);
-		t->addr[1] = PCIWADDR(b->rp)>>32;
+		t->addr[0] = Pciwaddrl(b->rp);
+		t->addr[1] = Pciwaddrh(b->rp);
 		t->length = BLEN(b);
 		t->cmd = Rs|Ifcs|Teop;
 		c->tb[tdt] = b;
@@ -695,14 +703,14 @@ rxinit(Ctlr *c)
 	}
 	c->rdfree = 0;
 
-	c->reg[Fctrl] |= Bam|Rfce|Dpf;
+	c->reg[Fctrl] |= Bam|Dpf;
 	c->reg[Rxcsum] |= Ipcs;
 	c->reg[Srrctl] = (c->rbsz+1023)/1024;
 	c->reg[Mhadd] = c->rbsz<<16;
 	c->reg[Hlreg0] |= Txcrcen|Jumboen;
 
-	c->reg[Rbal] = PCIWADDR(c->rdba);
-	c->reg[Rbah] = 0;
+	c->reg[Rbal] = Pciwaddrl(c->rdba);
+	c->reg[Rbah] = Pciwaddrh(c->rdba);
 	c->reg[Rdlen] = c->nrd*sizeof(Rd);
 	c->reg[Rdh] = 0;
 	c->reg[Rdt] = c->rdt = 0;
@@ -731,17 +739,12 @@ replenish(Ether *e, Ctlr *c, uint rdh, int maysleep)
 				goto nobufs;
 			if(1){
 				iprint("%s:%d: starve %d\n", cname(c), c->poolno, qlen(e->oq));
-				for(int j = 0; j < Ntypes; j++){
-					if(e->f[j] == nil)
-						continue;
-					print("  %.4ux %d\n", e->f[j]->type, qlen(e->f[j]->iq));
-				}
 			}
 			sleep(p, icansleep, p);
 		}
 		c->rb[rdt] = b;
-		r->addr[0] = PCIWADDR(b->rp);
-		r->addr[1] = 0; /* Pciwaddrh(b->rp); */
+		r->addr[0] = Pciwaddrl(b->rp);
+		r->addr[1] = Pciwaddrh(b->rp);
 		r->status = 0;
 		c->rdfree++;
 		i++;
@@ -976,8 +979,8 @@ txinit(Ctlr *c)
 			freeb(b);
 	}
 	memset(c->tdba, 0, c->ntd*sizeof(Td));
-	c->reg[Tdbal] = PCIWADDR(c->tdba);
-	c->reg[Tdbah] = 0;
+	c->reg[Tdbal] = Pciwaddrl(c->tdba);
+	c->reg[Tdbah] = Pciwaddrh(c->tdba);
 	c->reg[Tdlen] = c->ntd*sizeof(Td);
 	c->reg[Tdh] = 0;
 	c->reg[Tdt] = 0;
@@ -1038,11 +1041,11 @@ attach(Ether *e)
 	rxinit(c);
 	txinit(c);
 
-	sprint(buf, "#l%dl", e->ctlrno);
+	snprint(buf, sizeof buf, "#l%dl", e->ctlrno);
 	kproc(buf, lproc, e);
-	sprint(buf, "#l%dr", e->ctlrno);
+	snprint(buf, sizeof buf, "#l%dr", e->ctlrno);
 	kproc(buf, rproc, e);
-	sprint(buf, "#l%dt", e->ctlrno);
+	snprint(buf, sizeof buf, "#l%dt", e->ctlrno);
 	kproc(buf, tproc, e);
 }
 
@@ -1115,10 +1118,15 @@ scan(void)
 		case 0x10f9:	/* 82599 cx4 */
 		case 0x10fb:	/* 82599 sfi/sfp+ */
 		case 0x10fc:	/* 82599 xaui */
+		case 0x1414:	/* x520 kx4 mezz */
 		case 0x151c:	/* 82599 base t kx/kx4 “niantic” */
+		case 0x154a:	/* x520-4 */
+		case 0x154d:	/* x520-q1 */
+		case 0x1558:	/* x520-q1 */
 			type = i82599;
 			break;
 		case 0x1528:	/* x540-at2 “twinville” */
+		case 0x1560:
 			type = x540;
 			break;
 		default:
@@ -1129,7 +1137,7 @@ scan(void)
 			print("%s: %T: too many controllers\n", name, p->tbdf);
 			return;
 		}
-		io = p->mem[0].bar&~0xf;
+		io = p->mem[0].bar&~(uintmem)0xf;
 		mem = vmap(io, p->mem[0].size);
 		if(mem == 0){
 			print("%s: %T: cant map bar\n", name, p->tbdf);
@@ -1173,7 +1181,7 @@ pnp(Ether *e)
 found:
 	c->flag |= Factive;
 	e->ctlr = c;
-	e->port = (uintptr)c->reg;
+	e->port = c->port;
 	e->irq = c->p->intl;
 	e->tbdf = c->p->tbdf;
 	e->mbps = 10000;

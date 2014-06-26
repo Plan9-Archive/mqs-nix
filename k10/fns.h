@@ -1,6 +1,6 @@
 #include "../port/portfns.h"
-void	aamloop(int);
-int	acpiinit(void);
+
+void	acpiinit(int);
 Dirtab*	addarchfile(char*, int, long(*)(Chan*, void*, long, vlong), long(*)(Chan*, void*, long, vlong));
 void	adrinit(void);
 void	apicipi(int);
@@ -10,20 +10,20 @@ vlong	archhz(void);
 void	archinit(void);
 int	archmmu(void);
 void	archreset(void);
+#define	BIOSSEG(a)	KADDR(((uint)(a))<<4)
 void	cgaconsputs(char*, int);
 void	cgainit(void);
 void	cgapost(int);
 void	checkpa(char*, uintmem);
 #define	clearmmucache()				/* x86 doesn't have one */
-#define coherence()	mfence()
+#define	coherence()	mfence()
 void	confsetenv(void);
-u32int	cpuid(u32int, u32int, u32int[4]);
-int	dbgprint(char*, ...);
+void	cpuid(u32int, u32int, u32int[4]);
 void	delay(int);
+void	devacpiinit(void);
 void	dumpmmu(Proc*);
 void	dumpmmuwalk(uintmem);
 void	dumpptepg(int, uintmem);
-#define	evenaddr(x)				/* x86 doesn't care */
 int	fpudevprocio(Proc*, void*, long, vlong, int);
 void	fpuinit(void);
 void	fpunoted(void);
@@ -33,17 +33,25 @@ void	fpuprocsave(Proc*);
 void	fpusysprocsetup(Proc*);
 void	fpusysrforkchild(Proc*, Proc*);
 void	fpusysrfork(Ureg*);
+void	gdtget(void*);
+void	gdtput(int, u64int, u16int);
 char*	getconf(char*);
+u64int	getcr0(void);
+u64int	getcr2(void);
+u64int	getcr3(void);
+u64int	getcr4(void);
 void	halt(void);
 void	hardhalt(void);
 int	i8042auxcmd(int);
-int	i8042auxcmds(uchar*, int);
-void	i8042auxenable(void (*)(int, int));
+void	i8042auxenable(void (*)(int));
+void	i8042kbdenable(void);
 void	i8042reset(void);
 void*	i8250alloc(int, int, int);
 void	i8250console(void);
+int	i8259init(int);
 void	idlehands(void);
 void	idthandlers(void);
+void	idtput(int, u64int);
 int	inb(int);
 u32int	inl(int);
 void	insb(int, void*, int);
@@ -58,8 +66,8 @@ void	iofree(int);
 void	ioinit(void);
 int	ioreserve(int, int, int, char*);
 int	iounused(int, int);
-int	iprint(char*, ...);
 int	islo(void);
+void*	KADDR(uintmem);
 void	kbdenable(void);
 void	kbdinit(void);
 void	kexit(Ureg*);
@@ -72,9 +80,13 @@ void	meminit(void);
 void	mfence(void);
 void	mmuflushtlb(uintmem);
 void	mmuinit(void);
+void	mmumap(uintmem, uintptr, u64int, uint);
 uintmem	mmuphysaddr(uintptr);
 int	mmuwalk(PTE*, uintptr, int, PTE**, uintmem (*)(usize));
+int	mpacpi(int);
+void	mpsinit(int);
 void	ndnr(void);
+void	nmienable(void);
 void	noerrorsleft(void);
 uchar	nvramread(int);
 void	nvramwrite(int, uchar);
@@ -85,120 +97,68 @@ void	outsb(int, void*, int);
 void	outs(int, ushort);
 void	outsl(int, void*, int);
 void	outss(int, void*, int);
-int	pcicap(Pcidev*, int);
-int	pcicfgr16(Pcidev*, int);
-int	pcicfgr32(Pcidev*, int);
-int	pcicfgr8(Pcidev*, int);
-void	pcicfgw16(Pcidev*, int, int);
-void	pcicfgw32(Pcidev*, int, int);
-void	pcicfgw8(Pcidev*, int, int);
-void	pciclrbme(Pcidev*);
-void	pciclriome(Pcidev*);
-void	pciclrmwi(Pcidev*);
-int	pciconfig(char*, int, Pciconf*);
-int	pcigetpms(Pcidev*);
-void	pcihinv(Pcidev*);
-Pcidev*	pcimatch(Pcidev*, int, int);
-Pcidev*	pcimatchtbdf(int);
-void	pcireset(void);
-void	pcisetbme(Pcidev*);
-void	pcisetioe(Pcidev*);
-void	pcisetmwi(Pcidev*);
-int	pcisetpms(Pcidev*, int);
+uintmem	PADDR(void*);
+void	pause(void);
 void	physallocdump(void);
 void	printcpufreq(void);
-int	screenprint(char*, ...);			/* debugging */
-void	sfence(void);
-int	strtotbdf(char*, char**, int);
-void	syscall(uint, Ureg*);
-void	trapenable(int, void (*)(Ureg*, void*), void*, char*);
-void	trapinit(void);
-void	trap(Ureg*);
-void	tssrsp0(u64int);
-void	umeminit(void);
-int	userureg(Ureg*);
-void*	vmap(uintmem, usize);
-void*	vmappat(uintmem, usize, uint);
-int	vmapsync(uintptr);
-void	vsvminit(int);
-void	vunmap(void*, usize);
-
-u64int	cr0get(void);
-void	cr0put(u64int);
-u64int	cr2get(void);
-u64int	cr3get(void);
-void	cr3put(u64int);
-u64int	cr4get(void);
-void	cr4put(u64int);
-void	gdtget(void*);
-void	gdtput(int, u64int, u16int);
-void	idtput(int, u64int);
+void	putcr0(u64int);
+void	putcr3(u64int);
+void	putcr4(u64int);
 u64int	rdmsr(u32int);
 void	rdrandbuf(void*, usize);
 u64int	rdtsc(void);
-void	trput(u64int);
-void	wrmsr(u32int, u64int);
-
-int	cas32(void*, u32int, u32int);
-int	cas64(void*, u64int, u64int);
-int	tas32(void*);
-u64int	fas64(u64int*, u64int);
-
-#define CASU(p, e, n)	cas64((p), (u64int)(e), (u64int)(n))
-#define CASV(p, e, n)	cas64((p), (u64int)(e), (u64int)(n))
-#define CASP(p, e, n)	cas64((p), (u64int)(e), (u64int)(n))
-#define CASW(p, e, n)	cas32((p), (e), (n))
-#define TAS(addr)	tas32((addr))
-#define	FASP(p, v)	((void*)fas64((u64int*)(p), (u64int)(v)))
-
-void	touser(uintptr);
+int	screenprint(char*, ...);			/* debugging */
+void	sfence(void);
+void	sipi(void);
 void	syscallentry(void);
 void	syscallreturn(void);
+void	syscall(uint, Ureg*);
 void	sysrforkret(void);
-
-#define	waserror()	(up->nerrlab++, setlabel(&up->errlab[up->nerrlab-1]))
-
+void*	tmpmap(uintmem);
+void	tmpunmap(void*);
+void	touser(uintptr);
+void	trapenable(int, void (*)(Ureg*, void*), void*, char*);
+void	trapinit(void);
+void	trap(Ureg*);
+void	trput(u64int);
+void	tssrsp0(u64int);
+void	umeminit(void);
+int	userureg(Ureg*);
+#define	validalign(adr, sz)				/* x86 doesn't care */
+void	vctlinit(Vctl*);
+void*	vintrenable(Vctl*, char*);
+void*	vmapoverlap(uintmem, usize);
+void*	vmappat(uintmem, usize, uint);
+int	vmapsync(uintptr);
+void*	vmap(uintmem, usize);
+void	vsvminit(int);
+void	vunmap(void*, usize);
+void	writeconf(void);
+void	wrmsr(u32int, u64int);
 #define PTR2UINT(p)	((uintptr)(p))
 #define UINT2PTR(i)	((void*)(i))
 
-void*	KADDR(uintmem);
-uintmem	PADDR(void*);
+int	ainc8(void*);
+int	cas32(void*, u32int, u32int);
+int	cas64(void*, u64int, u64int);
+u32int	fas32(u32int*, u32int);
+u64int	fas64(u64int*, u64int);
+int	tas32(void*);
 
-#define BIOSSEG(a)	KADDR(((uint)(a))<<4)
+#define	cas(p, e, n)	cas32((p), (u32int)(e), (u32int)(n))
+#define casp(p, e, n)	cas64((p), (u64int)(e), (u64int)(n))
+#define	fas(p, v)		((int)fas32((u32int*)(p), (u32int)(v)))
+#define	fasp(p, v)	((void*)fas64((u64int*)(p), (u64int)(v)))
+#define tas(p)		tas32(p)
 
-/*
- * (l|io)apic.c
- */
-int	lapiceoi(int);
-void	lapicipi(int);
-void	lapicinit(int, uintmem, int);
-int	lapicisr(int);
-int	lapiconline(void);
-void	lapicpri(int);
-void	lapicsipi(int, uintmem);
+#define	monmwait(v, o)	((int)monmwait32((u32int*)(v), (u32int)(o)))
+u32int	(*monmwait32)(u32int*, u32int);
+u32int	nopmonmwait32(u32int*, u32int);
+u32int	k10monmwait32(u32int*, u32int);
 
-void	ioapicinit(int, int, uintmem);
-void	ioapicintrinit(int, int, int, int, u32int);
-void	ioapiconline(void);
+#define	monmwaitp(v, o)	monmwait64(v, o);
+u64int	(*monmwait64)(u64int*, u64int);
+u64int	nopmonmwait64(u64int*, u64int);
+u64int	k10monmwait64(u64int*, u64int);
 
-/*
- * archk10.c
- */
-void k10mwait(void*);
-
-/*
- * i8259.c
- */
-int	i8259init(int);
-int	i8259isr(int);
-
-/*
- * mp.c
- */
-void	mpsinit(int);
-int	mpacpi(int);
-
-/*
- * sipi.c
- */
-void	sipi(void);
+#pragma		varargck	argpos	screenprint		1

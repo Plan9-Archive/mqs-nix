@@ -39,6 +39,32 @@ ioset(void *v, int i, uint x)
 	outb(io+i, x);
 }
 
+void
+wave(char *s)
+{
+	uint i;
+	uchar c;
+
+	for(; c = *s; s++){
+		for(i = 0; !(inb(0x3F8 + Lsr)&Thre) && i < 128000; i++)
+			microdelay(1);
+		outb(0x3F8 + Thr, c);
+		for(i = 0; !(inb(0x3F8 + Lsr)&Thre) && i < 128000; i++)
+			microdelay(1);
+	}
+}
+void
+waveprint(char *fmt, ...)
+{
+	char buf[256];
+	va_list arg;
+
+	va_start(arg, fmt);
+	vseprint(buf, buf+sizeof(buf), fmt, arg);
+	va_end(arg);
+	wave(buf);
+}
+
 static int
 itr(Uart *u, int on)
 {
@@ -46,10 +72,10 @@ itr(Uart *u, int on)
 
 	c = u->regs;
 	if(on)
-		intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+		c->vector = intrenable(c->irq, i8250interrupt, u, c->tbdf, u->name);
 	else
 		/* this causes hangs. please debug. */
-//		return intrdisable(c->irq, i8250interrupt, u, c->tbdf, u->name);
+//		return intrdisable(c->vector);
 		return -1;
 	return 0;
 }
@@ -127,7 +153,7 @@ i8250console(void)
 	n = uartconsconf(&cmd);
 	if(n == 0 || n == 1){
 		qlock(i8250uart + n);
-		uartctl(i8250uart + n, "z");
+		uartctl(i8250uart + n, "z i8");
 		uartctl(i8250uart + n, cmd);
 		qunlock(i8250uart + n);
 	}

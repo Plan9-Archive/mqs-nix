@@ -80,8 +80,6 @@ newseg(int type, uintptr base, uintptr top)
 		type, base, top, pgshift, s->size, mapsize);
 	if(mapsize > nelem(s->ssegmap)){
 		mapsize *= 2;
-		if(mapsize > (SEGMAPSIZE*s->ptepertab))
-			mapsize = (SEGMAPSIZE*s->ptepertab);
 		s->map = smalloc(mapsize*sizeof(Pte*));
 		s->mapsize = mapsize;
 	}
@@ -93,35 +91,12 @@ newseg(int type, uintptr base, uintptr top)
 	return s;
 }
 
-#define	NHASH 101
-#define SHASH(np)	(PTR2UINT(np)%NHASH)
-
-Sem*
-segmksem(Segment *sg, int *np)
-{
-	Sem *s, **l;
-
-	qlock(&sg->lk);
-	if(sg->sems.s == nil)
-		sg->sems.s = mallocz(NHASH * sizeof(Sem*), 1);
-	for(l = &sg->sems.s[SHASH(np)]; (s = *l) != nil; l = &s->next)
-		if(s->np == np){
-			qunlock(&sg->lk);
-			return s;
-		}
-	s = mallocz(sizeof *s, 1);
-	s->np = np;
-	*l = s;
-	qunlock(&sg->lk);
-	return s;
-}
-
 void
 putseg(Segment *s)
 {
+	int n;
 	Pte **pp, **emap;
 	Image *i;
-	extern void freezseg(Segment*);
 
 	if(s == 0)
 		return;
@@ -130,19 +105,20 @@ putseg(Segment *s)
 	if(i != 0) {
 		lock(i);
 		lock(s);
-		if(i->s == s && s->ref == 1)
+		n = decref(s);
+		if(i->s == s && n == 0)
 			i->s = 0;
 		unlock(i);
-	}
-	else
-		lock(s);
-
-	s->ref--;
-	if(s->ref != 0) {
 		unlock(s);
-		return;
 	}
-	unlock(s);
+	else{
+		lock(s);
+		n = decref(s);
+		unlock(s);
+	}
+
+	if(n != 0)
+		return;
 
 	qlock(&s->lk);
 	if(i)
@@ -158,8 +134,7 @@ putseg(Segment *s)
 		free(s->map);
 	if(s->profile != 0)
 		free(s->profile);
-	if(s->sems.s != nil)
-		free(s->sems.s);
+//	memset(s, 0x22, sizeof *s);
 	free(s);
 }
 
@@ -318,18 +293,11 @@ mfreeseg(Segment *s, uintptr start, uintptr end)
 			 * We construct a list of the pages to be freed, zero
 			 * the entries, then (below) call procflushseg, and call
 			 * putpage on the whole list.
-			 *
-			 * Swapped-out pages don't appear in TLBs, so it's okay
-			 * to putswap those pages before procflushseg.
 			 */
 			if(pg){
-				if(onswap(pg))
-					putswap(pg);
-				else{
-					pg->next = list;
-					list = pg;
-				}
-				s->map[i]->pages[j] = 0;
+				pg->next = list;
+				list = pg;
+				s->map[i]->pages[j] = nil;
 			}
 			if(--pages == 0)
 				goto out;

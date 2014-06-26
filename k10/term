@@ -17,6 +17,7 @@ dev +dev
 #	segment
 	acpi
 	audio
+	ws
 
 	ether		netif
 	cec
@@ -25,8 +26,7 @@ dev +dev
 	pci
 
 	uart
-	kbin
-	kbmap
+	pckb
 	usb
 	mouse		mouse
 	draw		drawalloc vga screen swcursor
@@ -34,8 +34,8 @@ dev +dev
 
 uart +dev
 	uarti8250
-	uartpci		pci	uartp8250
 	uartox958	pci	uartp8250
+	uartpci		pci	uartp8250
 
 vga +dev
 	vgavesa
@@ -50,14 +50,22 @@ ip +dev
 
 link +dev
 	resmem
-#	etheriwl		wifi
+
+# wireless
+	etheriwl		wifi
+	etherrt2860	wifi
+
+# gbe
 	ether8169	pci ethermii
 #	ether82557	pci
 	ether82563	pci
 	etherbcm	pci ethermii
 	etherigbe	pci ethermii
-#	ether82598	pci
+
+# 10gbe
+	ether82598	pci
 #	etherm10g	pci
+
 	ethermedium
 #	loopbackmedium
 #	netdevmedium
@@ -70,20 +78,25 @@ link +dev
 sd +dev
 	sdaoe
 	sdahci		sdscsifis sdatafis led
-	sdide		sdscsifis sdatafis
+#	sdide		sdscsifis sdatafis
+	sdodin		sdscsifis sdatafis
+	sdvanir		sdscsifis sdatafis
+	sdmpt2		sdscsifis sdatafis
+	sdvirtio		sdscsi
 	sdloop
 
 misc +dev
-	mp		mpacpi lapic ioapic msi pci sipi
+#	mp		mpacpi lapic ioapic msi pci sipi
+	acpi		acpiio lapic ioapic msi pci sipi
 
 boot terminal
 	il
 
 rootdir
-	bootterm.out boot
+	boot$CONF.out boot
 	/amd64/bin/auth/factotum factotum
 	/amd64/bin/ip/ipconfig ipconfig
-	/amd64/bin/usb/usbd
+	/amd64/bin/usb/usbd usbd
 
 # cpuserver = 0 is different from boot where we need cpuflag.
 conf
@@ -95,7 +108,6 @@ dbgflg
 	devacpi		'C'
 	devsegment	'z'
 	hpet		'H'
-	ht		'H'
 	image		'p'
 	ioapic		'I'
 	main		'x'
@@ -121,9 +133,8 @@ amd64 +dev
 	cga
 	options
 	fpu
-#	i8254
+	i8042
 	i8259
-	kbd
 	main
 	map
 	mmu
@@ -140,7 +151,7 @@ physseg
 
 port
 	alarm
-	allocb
+	qallocb
 	chan
 	dev
 	devtab
@@ -160,6 +171,7 @@ port
 	qio
 	qlock
 	rebootcmd
+	ref
 	segment
 	sysauth
 	sysfile
@@ -167,7 +179,9 @@ port
 	sysseg
 #	syssem
 	systab
-	taslock
+#	taslock
+#	tiklock
+	mcslock
 	tod
 	syscallfmt
 
@@ -179,8 +193,12 @@ lib
 	libmemlayer
 	libmemdraw
 	libdraw
+	libaml
 	libip
 	libsec
 	libmp
 	libfis
 	libc
+
+mkargs
+	CFLAGS=-FVTw

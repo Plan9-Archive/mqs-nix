@@ -94,7 +94,7 @@ struct VGAscr {
 	Pcidev*	pci;
 
 	VGAcur*	cur;
-	ulong	storage;
+	uintptr	storage;
 	Cursor;
 
 	int	useflush;
@@ -103,7 +103,7 @@ struct VGAscr {
 	void*	vaddr;
 	int	apsize;
 
-	ulong	io;				/* device specific registers */
+	uintmem	io;				/* device specific registers */
 	u32int	*mmio;
 	
 	ulong	colormap[Pcolours][3];

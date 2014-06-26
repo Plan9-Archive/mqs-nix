@@ -62,7 +62,7 @@ canflush(Proc *p, Segment *s)
 	s->ref++;
 	unlock(s);
 
-	/* Now we must do hardwork to ensure all processes which have tlb
+	/* Now we must do hard work to ensure all processes which have tlb
 	 * entries for this segment will be flushed if we succeed in paging it out
 	 */
 	for(x = 0; (p = psincref(x)) != nil; x++){
@@ -135,31 +135,22 @@ pageout(Proc *p, Segment *s)
 	return n;
 }
 
-static void
+static int
 pageouttext(int pgszi, int color)
 {
-
 	Proc *p;
 	Pgsza *pa;
 	int i, n, np, x;
 	Segment *s;
-	int prepaged;
 
 	USED(color);
 	pa = &pga.pgsza[pgszi];
 	n = x = 0;
-	prepaged = 0;
 
-	/*
-	 * Try first to steal text pages from non-prepaged processes,
-	 * then from anyone.
-	 */
-Again:
 	do{
 		if((p = psincref(x)) == nil)
 			break;
 		np = 0;
-		if(/*p->prepagemem == 0 ||*/ prepaged != 0)
 		if(p->state != Dead && p->noswap == 0 && canqlock(&p->seglock)){
 			for(i = 0; i < NSEG; i++){
 				if((s = p->seg[i]) == nil)
@@ -179,8 +170,7 @@ Again:
 		x++;
 	}while(pa->freecount < Minpages);
 
-	if(pa->freecount < Minpages && prepaged++ == 0)
-		goto Again;
+	return n;
 }
 
 static void
@@ -218,9 +208,7 @@ tryalloc(int pgszi, int color)
 
 	p = pgalloc(m->pgsz[pgszi], color);
 	if(p != nil){
-		lock(&pga);
-		pagechainhead(p);
-		unlock(&pga);
+		putpage(p);
 		return 0;
 	}
 	return -1;
@@ -253,25 +241,11 @@ kickpager(int pgszi, int color)
 {
 	Pgsza *pa;
 
-	if(DBGFLG>1)
-		DBG("kickpager() %#p\n", up);
+	DBG("kickpager: %s:%d color %d\n", up->text, up->pid, color);
 	if(waserror())
 		panic("error in kickpager");
 	qlock(&pagerlck);
 	pa = &pga.pgsza[pgszi];
-
-	/*
-	 * 1. did anyone else release one for us in the mean time?
-	 */
-	if(hascolor(pa->head, color))
-		goto Done;
-
-	/*
-	 * 2. try allocating from physical memory
-	 */
-	tryalloc(pgszi, color);
-	if(hascolor(pa->head, color))
-		goto Done;
 
 	/*
 	 * If pgszi is <= text page size, try releasing text pages.
@@ -280,9 +254,8 @@ kickpager(int pgszi, int color)
 		pstats.ntext++;
 		DBG("kickpager() up %#p: reclaiming text pages\n", up);
 		pageouttext(pgszi, color);
-		tryalloc(pgszi, color);
-		if(hascolor(pa->head, color)){
-			DBG("kickpager() found %ud free\n", pa->freecount);
+		if(tryalloc(pgszi, color) == 0){
+			DBG("kickpager: pageouttext found %ud free\n", pa->freecount);
 			goto Done;
 		}
 	}
@@ -292,9 +265,8 @@ kickpager(int pgszi, int color)
 	 */
 	pstats.nbig++;
 	freepages(pgszi+1, 1);
-	tryalloc(pgszi, color);
-	if(hascolor(pa->head, color)){
-		DBG("kickpager() found %ud free\n", pa->freecount);
+	if(tryalloc(pgszi, color) == 0){
+		DBG("kickpager: big found %ud free\n", pa->freecount);
 		goto Done;
 	}
 
@@ -304,9 +276,8 @@ kickpager(int pgszi, int color)
 	pstats.nall++;
 	DBG("kickpager() up %#p: releasing all pages\n", up);
 	freepages(0, 0);
-	tryalloc(pgszi, color);
-	if(pa->freecount > 0){
-		DBG("kickpager() found %ud free\n", pa->freecount);
+	if(tryalloc(pgszi, color) == 0){
+		DBG("kickpager: freepages found %ud free\n", pa->freecount);
 		goto Done;
 	}
 
@@ -322,8 +293,6 @@ kickpager(int pgszi, int color)
 Done:
 	poperror();
 	qunlock(&pagerlck);
-	if(DBGFLG>1)
-		DBG("kickpager() done %#p\n", up);
 }
 
 void

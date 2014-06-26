@@ -1,14 +1,13 @@
-typedef struct Conf Conf;
 typedef struct Fxsave Fxsave;
-typedef struct Hwconf Hwconf;
 typedef struct Label Label;
 typedef struct Lock Lock;
+typedef struct LockEntry LockEntry;
 typedef struct MFPU MFPU;
 typedef struct MMMU MMMU;
 typedef struct Mach Mach;
 typedef u64int Mpl;
+typedef u64int Mreg;
 typedef struct Page Page;
-typedef struct Pciconf Pciconf;
 typedef struct Pcidev Pcidev;
 typedef struct PFPU PFPU;
 typedef struct PMMU PMMU;
@@ -16,7 +15,7 @@ typedef struct PNOTIFY PNOTIFY;
 typedef u64int PTE;
 typedef struct Proc Proc;
 typedef struct Sys Sys;
-typedef u64int uintmem;				/* Physical address (hideous) */
+typedef u64int uintmem;
 typedef struct Ureg Ureg;
 typedef struct Vctl Vctl;
 
@@ -33,6 +32,7 @@ typedef struct Vctl Vctl;
 /*
  *  machine dependent definitions used by ../port/portdat.h
  */
+#ifdef Taslock
 struct Lock
 {
 	u32int	key;
@@ -43,6 +43,29 @@ struct Lock
 	Mach*	m;
 	uvlong	lockcycles;
 };
+#else
+#ifdef Tiklock
+enum {
+	Cachelinesz	= 64,
+};
+struct Lock
+{
+	uchar	pad[Cachelinesz*2];
+	Mpl	pl;
+	int	isilock;
+	uintptr	pc;
+	Proc*	p;
+	Mach*	m;
+	uvlong	lockcycles;
+};
+#else
+struct Lock
+{
+	LockEntry*	head;
+	LockEntry*	e;
+};
+#endif
+#endif
 
 struct Label
 {
@@ -88,13 +111,6 @@ struct PMMU
 struct PNOTIFY
 {
 	int	emptiness;
-};
-
-struct Conf
-{
-	uint	nmach;		/* processors */
-	uint	nproc;		/* processes */
-	uint	nimage;		/* number of page cache image headers */
 };
 
 enum
@@ -151,6 +167,8 @@ struct Mach
 	int	apicno;
 	int	online;
 
+	LockEntry	locks[8];
+
 	MMMU;
 
 	uchar*	vsvm;
@@ -174,6 +192,8 @@ struct Mach
 	int	intr;
 	int	mmuflush;		/* make current proc flush it's mmu state */
 	int	ilockdepth;
+	uintptr	ilockpc;
+
 	Perf	perf;			/* performance counters */
 
 	int	inidle;			/* profiling */
@@ -205,7 +225,7 @@ struct Mach
 struct Sys {
 	uchar	machstk[MACHSTKSZ];
 
-	PTE	pml4[PTSZ/sizeof(PTE)];	/*  */
+	PTE	pml4[PTSZ/sizeof(PTE)];		/* all this is unused; but size known to asm */
 	PTE	pdp[PTSZ/sizeof(PTE)];
 	PTE	pd[PTSZ/sizeof(PTE)];
 	PTE	pt[PTSZ/sizeof(PTE)];
@@ -219,10 +239,10 @@ struct Sys {
 
 	union {
 		struct {
-			uintmem	pmstart;	/* physical memory */
+			uintmem	pmstart;		/* physical memory */
 			uintmem	pmend;		/* total span */
 
-			uintptr	vmstart;	/* base address for malloc */
+			uintptr	vmstart;		/* base address for malloc */
 			uintptr	vmunused;	/* 1st unused va */
 			uintptr	vmunmapped;	/* 1st unmapped va */
 			uintptr	vmend;		/* 1st unusable va */
@@ -231,12 +251,25 @@ struct Sys {
 
 			uint	copymode;	/* 0 is copy on write, 1 is copy on reference */
 
+			uchar	nolegacyprobe;	/* acpi tells us.  all negated in case acpi unavailable */
+			uchar	noi8042kbd;
+			uchar	novga;
+			uchar	nomsi;
+			uchar	nomsix;
+			uchar	nocmos;
+
+			uchar	monitor;
+
+			uint	nmach;		/* processors */
+			uint	nproc;		/* processes */
+			uint	nimage;		/* number of page cache image headers */
+
 			uvlong	npages;		/* total physical pages of memory */
 			uvlong	upages;		/* user page pool */
 			uvlong	kpages;		/* kernel pages */
 
 			u64int	epoch;		/* crude time synchronisation */
-			ulong	ticks;			/* of the clock since boot time */
+			ulong	ticks;		/* of the clock since boot time */
 		};
 		uchar	syspage[4*KiB];
 	};
@@ -262,33 +295,12 @@ extern KMap* kmap(Page*);
 
 struct
 {
-	Lock;
 	int	nonline;			/* # of active CPUs */
 	int	nbooting;			/* # of CPUs waiting for the bsp to go */
 	int	exiting;			/* shutdown */
 	int	ispanic;			/* shutdown in response to a panic */
 	int	thunderbirdsarego;	/* lets the added processors continue */
 }active;
-
-/*
- *  pci device configuration
- */
-struct Pciconf {
-	char	*type;
-	uintmem	port;
-	uintmem	mem;
-
-	int	irq;
-	uint	tbdf;
-
-	int	nopt;
-	char	optbuf[128];
-	char	*opt[8];
-};
-
-struct Hwconf {
-	Pciconf;
-};
 
 /*
  * The Mach structures must be available via the per-processor
@@ -299,11 +311,6 @@ struct Hwconf {
 
 extern register Mach* m;			/* R15 */
 extern register Proc* up;			/* R14 */
-
-extern uintptr kseg0;
-
-#pragma	varargck	type	"R"	u64int
-#pragma	varargck	type	"W"	uintptr
 
 /*
  * Horrid.

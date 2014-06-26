@@ -11,14 +11,15 @@ typedef	struct	Adrmap	Adrmap;
 struct Adrmap {
 	uintmem	base;
 	uintmem	len;
-	uint	type;
-	uint	use;
+	uchar	type;
+	uchar	use;
+	short	color;
 	uint	memflags;
 };
 
 static struct {
 	Lock;
-	Adrmap	map[125];
+	Adrmap	map[400];
 	int	nmap;
 	uvlong	pagecnt[Mlast];
 } adr;
@@ -45,14 +46,22 @@ static char *uname[Mlast+1] = {
 	"vmap",
 };
 
+static char*
+tnam(int type)
+{
+	if(type == -1 || type >= nelem(tname))
+		return "-1";
+	return tname[type];
+}
+
 static int
 fmta(Fmt *f)
 {
 	Adrmap *a;
 
 	a = va_arg(f->args, Adrmap*);
-	return fmtprint(f, "%.8s	%.8s	%#ux	%#.16P	%#.16P",
-		uname[a->use], tname[a->type], a->memflags, a->base, a->base+a->len);
+	return fmtprint(f, "%.8s	%.8s	%#ux	%d	%#.16P	%#.16P",
+		uname[a->use], tname[a->type], a->memflags, a->color, a->base, a->base+a->len);
 }
 #pragma	varargck	type	"a"	Adrmap*
 
@@ -93,21 +102,21 @@ npages(Adrmap *a)
 	return (ROUNDDN(a->base+a->len, PGSZ) - ROUNDUP(a->base, PGSZ))/PGSZ;
 }
 
-void
-insert(uintmem base, uintmem len, int type, int use, uint memflags)
+static void
+insert(uintmem base, uintmem len, int type, int use, int color, uint memflags)
 {
 	int i, n;
 	Adrmap a;
 
-	DBG("insert: %#P %.P %s %d\n", base, len, tname[type], use);
+	DBG("insert: %#P %.P t=%d %d\n", base, len, type, use);
 	if(adr.nmap == nelem(adr.map)){
-		print("adr: map overflow\n");
+		print("adr: map too small\n");
 		return;
 	}
 
 	lock(&adr);
 
-	a = (Adrmap){base, len, type, use, memflags};
+	a = (Adrmap){base, len, type, use, color, memflags};
 	n = npages(&a);
 	if(0 && n <= 0){
 		unlock(&adr);
@@ -188,7 +197,7 @@ adrmemtype(uintmem pa, uintmem *sz, int *type, int *use)
  * subject to change.  system text map should be handled elsewhere.
  */
 void
-adrmapinit(uintmem base, uintmem len, int type, int use)
+adrmapinit(uintmem base, uintmem len, int type, int use, int color)
 {
 	switch(type){
 	case Amemory:
@@ -202,12 +211,6 @@ adrmapinit(uintmem base, uintmem len, int type, int use)
 		 * and how much of it is occupied, might need to be known
 		 * for setting up allocators later.
 		 */
-//		if(base < 1*MiB || base+len < sys->pmstart)
-//			break;
-//		if(base < sys->pmstart){
-//			len -= sys->pmstart - base;
-//			base = sys->pmstart;
-//		}
 		if(base >= 1*MiB && base+len < sys->pmstart)
 			break;
 		if(base >= 1*MiB && base < sys->pmstart){
@@ -218,7 +221,7 @@ adrmapinit(uintmem base, uintmem len, int type, int use)
 		if(base+len > sys->pmend)
 			sys->pmend = base+len;
 	default:
-		insert(base, len, type, use, 0);
+		insert(base, len, type, use, color, 0);
 		break;
 	}
 }
@@ -228,6 +231,7 @@ trymerge(Adrmap *a, Adrmap *b)
 {
 	if(a->type == b->type)
 	if(a->use == b->use)
+	if(a->color == b->color)
 	if(a->base+a->len == b->base){
 		a->len += b->len;
 		memmove(b, b+1, (adr.nmap-- - (b+1 - adr.map))*sizeof(Adrmap));
@@ -236,23 +240,13 @@ trymerge(Adrmap *a, Adrmap *b)
 	return 0;
 }
 
-static char*
-tnam(int type)
-{
-	if(type == -1 || type >= nelem(tname))
-		return "-1";
-	return tname[type];
-}
-
-uintmem
-adralloc(uintmem base, uintmem len, int align, int type, int use, uint flags)
+static uintmem
+intadralloc(uintmem base, uintmem len, int align, int type, int use, int color, uint memflags)
 {
 	uintmem slop, adjlen, l;
 	int i;
 	Adrmap *a;
 
-	DBG("adralloc: %#P:%#P, %s flags %#ux\n", base, len, tnam(type), flags);
-	lock(&adr);
 	for(i = 0; i < adr.nmap; i++){
 		a = adr.map+i;
 		if((type != -1 && a->type != type) || a->use != Mfree)
@@ -263,6 +257,8 @@ adralloc(uintmem base, uintmem len, int align, int type, int use, uint flags)
 				continue;
 			/* add split */
 			if(a->base < base){
+				if(adr.nmap == nelem(adr.map))
+					panic("adr: map too small");
 				l = base - a->base;
 				memmove(a+1, a, (adr.nmap++ - i)*sizeof(Adrmap));
 				a->len = l;
@@ -277,6 +273,8 @@ adralloc(uintmem base, uintmem len, int align, int type, int use, uint flags)
 			continue;
 		base = a->base+slop;
 		if(a->len > adjlen){
+			if(adr.nmap == nelem(adr.map))
+				panic("adr: map too small");
 			memmove(a+1, a, (adr.nmap++ - i)*sizeof(Adrmap));
 			a->len = adjlen;
 			a[1].base += adjlen;
@@ -285,19 +283,32 @@ adralloc(uintmem base, uintmem len, int align, int type, int use, uint flags)
 				trymerge(a+1, a+2);
 		}
 		a->use = use;
-		a->memflags = flags;
+		a->memflags = memflags;
+		if(color != Cnone)
+			a->color = color;
 		if(0 && use == Mfree && i>0)
 			trymerge(a-1, a);
-		unlock(&adr);
 		return base;
 	}
+	return ~0ull;
+}
+
+uintmem
+adralloc(uintmem base, uintmem len, int align, int type, int use, uint memflags)
+{
+	uintmem r;
+
+	DBG("adralloc: %#P:%#P, %s flags %#ux\n", base, len, tnam(type), memflags);
+	lock(&adr);
+	r = intadralloc(base, len, align, type, use, Cnone, memflags);
 	unlock(&adr);
 
-	print("adralloc: fail %#P len %#P type %s use %s align %d flags %#ux from %#p\n",
-		base, len, tnam(type), uname[use], align, flags, getcallerpc(&base));
-	adrdump();
-
-	return 0;
+	if(r == ~0ull){
+		print("adralloc: fail %#P len %#P type %s use %s align %d flags %#ux from %#p\n",
+			base, len, tnam(type), uname[use], align, memflags, getcallerpc(&base));
+	//	adrdump();
+	}
+	return r;
 }
 
 void
@@ -310,7 +321,8 @@ adrfree(uintmem base, uintmem len)
 	m = adrlook(base, len);
 	if(m == nil || m->use == Mfree){
 		unlock(&adr);
-		print("should panic: bad adrfree %#P %#P", base, len);
+		print("should panic: bad adrfree %#P %#P\n", base, len);
+		return;
 	}
 	m->use = Mfree;
 	m->memflags = 0;
@@ -323,11 +335,12 @@ adrfree(uintmem base, uintmem len)
 }
 
 int
-adrmatch(int i, int type, int use, uintmem *base, uintmem *sz)
+adrmatch(int i, int type, int use, int color, uintmem *base, uintmem *sz)
 {
 	lock(&adr);
 	
 	for(; ++i < adr.nmap;){
+		if(adr.map[i].color == color || color == -1)
 		if(adr.map[i].type == type)
 		if(adr.map[i].use == use){
 			*base = adr.map[i].base;
@@ -341,12 +354,44 @@ adrmatch(int i, int type, int use, uintmem *base, uintmem *sz)
 	return -1;
 }
 
+void
+adrsetcolor(uintmem base, uintmem len, int color)
+{
+	int i;
+	uintmem b, e, end, aend;
+	Adrmap *a;
+
+	print("adrsetcolor: %#P:%#P color %d\n", base, base+len, color);
+	end = base + len;
+	lock(&adr);
+	for(i = 0; i < adr.nmap; i++){
+		a = adr.map+i;
+		aend = a->base + a->len;
+		if(base <= a->base && aend <= end){
+			/* fully enclosed; may already be allocated, so cheat */
+			a->color = color;
+			continue;
+		}
+		b = MAX(base, a->base);
+		e = MIN(end, aend);
+		if(b >= e)
+			continue;
+
+		DBG("adrsetcolor: split range [%#P %#P) ⊂ [%#P %#P)\n",
+			b, e, a->base, aend);
+		if(intadralloc(b, e-b, 0, a->type, a->use, color, a->memflags) == ~0ull)
+			print("adrsetcolor: no such memory  [%#P %#P) ⊂ [%#P %#P)\n",
+				b, e, a->base, aend);
+	}
+	unlock(&adr);
+}
+
 /*
  * apics and i/o apics should be, but aren't always reserved memory.
  * insure that we've got an appropriate adr entry for such a beast.
  */
 void
-adrmapck(uintmem base, uintmem len, int type, int use)
+adrmapck(uintmem base, uintmem len, int type, int use, int color)
 {
 	Adrmap *m;
 
@@ -354,12 +399,12 @@ adrmapck(uintmem base, uintmem len, int type, int use)
 	m = adrlook(base, len);
 	if(m == nil){
 		unlock(&adr);
-		insert(base, len, type, use, 0);
+		insert(base, len, type, use, color, 0);
 	}
 	else{
 		m->type = type;
 		unlock(&adr);
-		adralloc(base, len, 0, type, use, 0);
+		intadralloc(base, len, 0, type, use, color, 0);
 	}
 }
 
@@ -396,7 +441,7 @@ adrinit(void)
 //	sys->pmstart = ROUNDUP(PADDR(end), BIGPGSZ);
 	sys->pmstart = 0+INIMAP;
 	sys->pmend = sys->pmstart;
-	insert(1*MiB, sys->pmstart - 1*MiB, Amemory, Mktext, 0);	/* botch; hardcoded */
+	insert(1*MiB, sys->pmstart - 1*MiB, Amemory, Mktext, 0, 0);	/* botch; hardcoded */
 	addarchfile("adr", 0444, adrread, nil);
 }
 
@@ -431,7 +476,7 @@ meminit(void)
 
 	/* can pick any pa; expect INIMAP */
 	pa = adralloc(0, sys->vmend - sys->vmunmapped, 0, Amemory, Mkpage, 0);
-	if(pa == 0)
+	if(pa == ~0ull)
 		panic("adr: insufficient contiguous memory for kernel %#P", pa);
 	print("pa %#P (%#P %#P)\n", pa, sys->vmend, sys->vmunmapped);
 
@@ -463,6 +508,8 @@ meminit(void)
 		print("adr: mem %#P %#P size %P\n", lo, hi, a->len);
 
 		/* Convert a range into pages */
+		sys->upages += (hi-lo)/PGSZ;
+		sys->npages += (hi-lo)/PGSZ;
 		for(mem = lo; mem < hi; mem = nextmem){
 			nextmem = (mem + PGLSZ(0)) & ~m->pgszmask[0];
 
@@ -489,7 +536,11 @@ meminit(void)
 		}
 	}
 	sys->meminit = 1;
-	print("%d %d %d\n", npg[0], npg[1], npg[2]);
+
+	print("adr: ");
+	for(i = 0; i < m->npgsz; i++)
+		print("%d/%d ", m->pgszlg2[i], npg[i]);
+	print("\n");
 }
 
 void
@@ -505,7 +556,7 @@ umeminit(void)
 		adr.pagecnt[a->use] -= npages(a);
 		a->use = Mupage;
 		adr.pagecnt[Mupage] += npages(a);
-		physinit(a->base, a->len);
+		physinit(a->base, a->len, a->color != Cnone? a->color: 0);
 	}
 	physallocdump();
 }

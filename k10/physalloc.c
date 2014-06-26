@@ -427,68 +427,57 @@ iimbchunk(Bal *b, uintmem a, uintmem e, int type)
  * Called from umeminit to initialize user memory allocators.
  */
 void
-physinit(uintmem a, u64int size)
+physinit(uintmem addr, u64int len, int dom)
 {
 	uintmem dtsz;
 	Bal *b;
-	int i, dom;
-	uintmem addr, len;
+	int i;
 
-	DBG("physinit %#P %#llux\n", a, size);
+	DBG("physinit %#P %#llux color %d\n", addr, len, dom);
 
-	for(addr = a; addr < a+size; addr += len){
+	/*
+	 * Each block may belong to a different NUMA domain
+	 * Create a buddy allocator for each domain, so we can
+	 * explicitly allocate memory from different domains.
+	 *
+	 * This code assumes that dom is a small integer.
+	 */
+	if(dom < 0 || dom >= Ndoms){
+		print("physinit: dom too big: %d\n", dom);
 		dom = 0;
-		len = acpimblocksize(addr, &dom);
-		/* len can be zero if there's no acpi information about addr */
-		if(len == 0 || addr + len > a + size)
-			len = a + size - addr;
-		/*
-		 * Each block belongs to a different domain (ie. cpu/mem socket)
-		 * We must create a buddy allocator for each block, so we could
-		 * allocate memory from different domains.
-		 *
-		 * This code assumes that a domain may be extended later and
-		 * that there is no interleaving of domains. Ok by now.
-		 */
-		DBG("physmem block dom %d addr %#P size %#P\n", dom, addr, len);
-		if(dom < 0 || dom >= Ndoms){
-			print("physinit: invalid dom %d\n", dom);
-			dom = 0;
-		}
-		b = &bal[dom];
-		if(dom >= ndoms)
-			ndoms = dom+1;
-		if(b->kmin == 0){
-			b->base = addr;
-			b->size = len;
-			b->kmin = BKmin;
-			b->kmax = BKmax;
-			b->bminsz = (UNO<<b->kmin);
-			b->memory = sys->pmstart;
-			b->kspan = log2ceil(sys->pmend);
-			dtsz = sizeof(Buddy)*(UNO<<(b->kspan-b->kmin+1));
-			DBG("kspan %ud (arrysz %P)\n", b->kspan, dtsz);
-			b->blocks = malloc(dtsz);
-			if(b->blocks == nil)
-				panic("physinit: no blocks");
-			memset(b->blocks, 0, dtsz);
-			b->avail = malloc(sizeof(Buddy)*(b->kmax+1));
-			if(b->avail == nil)
-				panic("physinit: no avail");
-			memset(b->avail, 0, sizeof(Buddy)*(b->kmax+1));
-		}else{
-			if(addr < b->base)
-				panic("physinit: decreasing base");
-			if(b->base+b->size < addr + len)
-				b->size = (addr-b->base) + len;
-			for(i = 0; i < Ndoms; i++)
-				if(bal[i].kmin && &bal[i] != b)
-				if(bal[i].base < b->base + b->size && 
-				   bal[i].base + bal[i].size > b->base + b->size)
-					panic("physinit: doms overlap");
-		}
-		assert(addr >= b->base && addr+len <= b->base + b->size);
-
-		iimbchunk(b, addr, addr+len, 0);
 	}
+	b = &bal[dom];
+	if(dom >= ndoms)
+		ndoms = dom+1;
+	if(b->kmin == 0){
+		b->base = addr;
+		b->size = len;
+		b->kmin = BKmin;
+		b->kmax = BKmax;
+		b->bminsz = (UNO<<b->kmin);
+		b->memory = sys->pmstart;
+		b->kspan = log2ceil(sys->pmend);
+		dtsz = sizeof(Buddy)*(UNO<<(b->kspan-b->kmin+1));
+		DBG("kspan %ud (arrysz %P)\n", b->kspan, dtsz);
+		b->blocks = malloc(dtsz);
+		if(b->blocks == nil)
+			panic("physinit: no blocks");
+		memset(b->blocks, 0, dtsz);
+		b->avail = malloc(sizeof(Buddy)*(b->kmax+1));
+		if(b->avail == nil)
+			panic("physinit: no avail");
+		memset(b->avail, 0, sizeof(Buddy)*(b->kmax+1));
+	}else{
+		if(addr < b->base)
+			panic("physinit: decreasing base");
+		if(b->base+b->size < addr + len)
+			b->size = (addr-b->base) + len;
+		for(i = 0; i < Ndoms; i++)
+			if(bal[i].kmin && &bal[i] != b)
+			if(bal[i].base < b->base + b->size && 
+			   bal[i].base + bal[i].size > b->base + b->size)
+				panic("physinit: doms overlap");
+	}
+	assert(addr >= b->base && addr+len <= b->base + b->size);
+	iimbchunk(b, addr, addr+len, 0);
 }

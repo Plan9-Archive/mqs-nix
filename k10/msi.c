@@ -65,6 +65,9 @@ pcimsienable(Pcidev *p, uvlong vec)
 	char *s;
 	uint c, f, d, datao, lopri, dmode, logical;
 
+	if(sys->nomsi)
+		return -1;
+
 	c = msicap(p);
 	if(c == 0)
 		return -1;
