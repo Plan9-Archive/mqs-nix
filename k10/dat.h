@@ -273,8 +273,7 @@ struct Sys {
 			u64int	epoch;		/* crude time synchronisation */
 			ulong	ticks;		/* of the clock since boot time */
 
-			uint 	ndim; 		/* number of neighbors each Mach has */
-			uint 	load; 
+			uint 	load;  		/* global load */
 		};
 		uchar	syspage[4*KiB];
 	};

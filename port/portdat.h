@@ -716,7 +716,6 @@ struct Sched
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
 	uint	nrun;		/* to compute load */
-	Proc *highest;
 };
 
 typedef union Ar0 Ar0;
