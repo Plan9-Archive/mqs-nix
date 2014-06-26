@@ -111,13 +111,6 @@ sysconfinit(void)
 }
 
 void
-sysconfinit(void)
-{
-	sys->nproc = 2000;
-	sys->nimage = 200;
-}
-
-void
 main(void)
 {
 	vlong hz;
