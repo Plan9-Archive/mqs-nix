@@ -688,7 +688,6 @@ runproc(void)
 	Proc *p, *l;
 	uvlong start, now;
 	int i, skip;
-	static Lock monitor;		/* fight over one cache line, not many */
 
 	skip = 0;
 	start = perfticks();
@@ -729,7 +728,6 @@ loop:
 				goto found;
 			}
 		}
-		iunlock(&monitor);
 
 		while(monmwait((int*)&sch->runvec, 0) == 0)
 			;
