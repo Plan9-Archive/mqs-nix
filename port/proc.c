@@ -417,7 +417,6 @@ doublerqunlock(Sched *src, Sched *dst)
 }
 
 /* called in clock intr ctx */
-void
 pushproc(Mach *target)
 {
 	Sched *srcsch;
@@ -453,6 +452,9 @@ pushproc(Mach *target)
 		}
 	}
 	
+	if(p == nil)
+		goto out;
+	
 	/* We have our proc, stick it in the target runqueue 
 	 * will have to:
 	 * force the target mach to schedule() 
@@ -474,7 +476,10 @@ pushproc(Mach *target)
 	dstrq->n++;
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
-	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
+//	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
+	goto out;
+
+out:
 	doublerqunlock(srcsch, dstsch);
 }
 
