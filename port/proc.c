@@ -401,22 +401,24 @@ reprioritize(Proc *p)
 }
 
 int
-doublerqlock(Sched *src, Sched *dst)
+rqpairlock(Sched *src, Sched *dst)
 {
-	if(canlock(src) && canlock(dst))
-		return 1;
+	if(canlock(src))
+		if(canlock(dst))
+			return 1;
+		unlock(dst);
+	unlock(src);
 	return 0;
 }
 
 int
-doublerqunlock(Sched *src, Sched *dst)
+rqpairunlock(Sched *src, Sched *dst)
 {
-	unlock(src);
-	unlock(dst);
-	return 0;
+	return unlock(src) && unlock(dst);
 }
 
 /* called in clock intr ctx */
+void
 pushproc(Mach *target)
 {
 	Sched *srcsch;
@@ -428,7 +430,7 @@ pushproc(Mach *target)
 	srcsch = &m->sch;
 	dstsch = &target->sch; 
 
-	while(!doublerqlock(srcsch, dstsch))
+	while(!rqpairlock(srcsch, dstsch))
 		;
 
 	/* Find a process to push */
@@ -480,7 +482,7 @@ pushproc(Mach *target)
 	goto out;
 
 out:
-	doublerqunlock(srcsch, dstsch);
+	rqpairunlock(srcsch, dstsch);
 }
 
 /*
@@ -1840,20 +1842,6 @@ findmach(void)
 
 	if(min_load == 0)
 		goto out;
-
-	/* perhaps just check a subset of maches instead */
-	/*
-	for(i = 0; i < sys->nmach; i++){
-		if((mp = sys->machptr[i])->load == 0) {
-			laziest = mp;
-			goto out;
-		}
-		if((mp = sys->machptr[i])->load < min_load)
-			laziest = mp;
-	}
-	return laziest;
-	*/
-
 
 	for(i = 0; i < NDIM; i++) {
 		if((mp = m->neighbors[i])->load == 0) {
