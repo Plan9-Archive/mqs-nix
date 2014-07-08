@@ -201,42 +201,22 @@ imbalance(void)
 	struct Mach *mp;
 
 	/* If this mach is idle, it shouldn't be doing any pushing */
-	if(m->load == 0 || (m->sch.nrun + m->sch.nrdy) == 0)
+	if(m->sch.nrun + m->sch.nrdy < 1)
 		return nil;
 
-	total_nrun = 0;
-	total_nrdy = 0;
-	for(i = 0; i < NDIM; i++) {
-		total_nrun += m->neighbors[i]->sch.nrun;
-		total_nrdy += m->neighbors[i]->sch.nrdy;
-	}
-
-	if(total_nrun + total_nrdy < NDIM + 1)
-		return nil;
-	
 	for(i = 0; i < NDIM; i++) {
 		mp = m->neighbors[i];
 
-		/* total_nrun + total_nrdy is > NDIM+self and a neighbor is idling */
-		if(mp->load == 0 || (mp->sch.nrdy + mp->sch.nrun == 0)) {
+		if(mp->load == 0) {
 			balance_neighbor_idle++;
 			return mp; 
 		}
 
-		/*  percentage difference formula is as follows:
-		 *  | Load A - Load B | / ((Load A + Load B)/2) x 100%
-		 *
-		 *  if the result of the above is >= IMBALANCE_THRES%, then
-		 *  we should load balance. The inequality above was simplified
-		 *  to the conditional below.
-		 */
-		if((200 * abs(m->load - mp->load)) >= 
-				(IMBALANCE_THRES * (m->load + mp->load))) {
-			if(m->load < mp->load) /* there is a imbalance but I'm the less loaded one */
-				return nil;
-			balance_load_imbal++;
+		if(mp->runvec == 0 && mp->proc == nil) {
+			balance_neighbor_idle++;
 			return mp;
 		}
+		
 	}
 
 	/* No neighbor met the threshold, assume are balanced */

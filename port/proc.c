@@ -416,6 +416,10 @@ pushproc(Mach *target)
 	srcsch = &m->sch;
 	dstsch = &target->sch; 
 
+	/* then we shouldn't be here in the first place, nothing to push */
+	if(m->runvec == 0)
+		return;
+
 	lock(srcsch);
 
 	/* Find a process to push */
@@ -593,7 +597,7 @@ forkready(Proc *p)
 		/* procsched will return p->mp, which was set to 
 		 * p->wired upon proc creation 
 		 */
-		 schedready(procsched(p), p);
+		ready(p);
 	} else{
 		Mach *laziest;
 
@@ -1815,22 +1819,25 @@ accounttime(void)
 Mach* 
 findmach(void)
 {
-	int i, min_load = m->load;
-	Mach *mp, *laziest = m;
+	int i, min_load;
+	Mach *mp, *laziest;
 
-	if(min_load == 0)
-		goto out;
+	min_load = m->load;
+	laziest = m;
+
+	if(min_load == 0 || m->runvec == 0)
+		return laziest;
 
 	for(i = 0; i < NDIM; i++) {
-		if((mp = m->neighbors[i])->load == 0) {
+		if((mp = m->neighbors[i])->load == 0)
 			laziest = mp;
-			goto out;
-		}
-		if((mp = m->neighbors[i])->load < min_load)
+
+		if((mp->runvec == 0))
 			laziest = mp;
+		/*if((mp = m->neighbors[i])->load < min_load)
+			laziest = mp;*/
 	}
 
-out:
 	return laziest;
 }
 
