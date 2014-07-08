@@ -438,11 +438,10 @@ pushproc(Mach *target)
 			break;
 		}
 	}
+	unlock(srcsch);
 	
-	if(p == nil) {
-		unlock(srcsch);
+	if(p == nil)
 		return;
-	}
 	
 	/* We have our proc, stick it in the target runqueue 
 	 * will have to:
