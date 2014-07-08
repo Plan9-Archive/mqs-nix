@@ -404,19 +404,20 @@ reprioritize(Proc *p)
 }
 
 int
-doublerqlock(Sched *src, Sched *dst)
+lockrqs(Sched *src, Sched *dst)
 {
-	if(canlock(src) && canlock(dst))
-		return 1;
+	if(canlock(src))
+		if(canlock(dst))
+			return 1;
+		unlock(dst);
+	unlock(src);
 	return 0;
 }
 
 int
-doublerqunlock(Sched *src, Sched *dst)
+unlockrqs(Sched *src, Sched *dst)
 {
-	unlock(src);
-	unlock(dst);
-	return 0;
+	return unlock(src) && unlock(dst);
 }
 
 /* called in clock intr ctx */
@@ -432,8 +433,7 @@ pushproc(Mach *target)
 	srcsch = &m->sch;
 	dstsch = &target->sch; 
 
-	while(!doublerqlock(srcsch, dstsch))
-		;
+	lock(srcsch);
 
 	/* Find a process to push */
 	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
@@ -456,14 +456,17 @@ pushproc(Mach *target)
 		}
 	}
 	
-	if(p == nil)
-		goto out;
+	if(p == nil) {
+		unlock(srcsch);
+		return;
+	}
 	
 	/* We have our proc, stick it in the target runqueue 
 	 * will have to:
 	 * force the target mach to schedule() 
 	 * reprioritize it? The next hzclock will do this in rebalance()
 	 */
+	lock(dstsch);
 	pri = reprioritize(p);
 	p->priority = pri;
 	dstrq = &dstsch->runq[pri];
@@ -480,11 +483,8 @@ pushproc(Mach *target)
 	dstrq->n++;
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
-//	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
-	goto out;
 
-out:
-	doublerqunlock(srcsch, dstsch);
+	unlock(dstsch);
 }
 
 /*
@@ -710,8 +710,8 @@ loop:
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
 				continue;
-			if(p->mp == nil || p->mp == m
-					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+/*			if(p->mp == nil || p->mp == m
+					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) { */
 				splhi();
 				lock(sch);
 				/* dequeue the first (head) process of this rq */
@@ -724,13 +724,25 @@ loop:
 				sch->nrdy--;
 				if(p->state != Ready)
 					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+	if(sch->rqn == 0) 
+		sch->rqn = 1;
+	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 				unlock(sch);
 				goto found;
-			}
 		}
 
+<<<<<<< local
+		/* waste time or halt the CPU */
+
+		if(i > 1)
+			idlehands();
+		else
+			while(sch->runvec == 0)
+				monmwait((int*)&sch->runvec, 0);
+=======
 		while(monmwait((int*)&sch->runvec, 0) == 0)
 			;
+>>>>>>> other
 
 		/* remember how much time we're here */
 		now = perfticks();
@@ -1235,8 +1247,8 @@ pexit(char *exitstr, int freemem)
 	Egrp *egrp;
 	Rgrp *rgrp;
 	Pgrp *pgrp;
-	Chan *dot;
 
+	Chan *dot;
 	if(0 && up->nfullq > 0)
 		iprint(" %s=%d", up->text, up->nfullq);
 	free(up->syscalltrace);
@@ -1845,6 +1857,10 @@ findmach(void)
 		if((mp = m->neighbors[i])->load < min_load)
 			laziest = mp;
 	}
+<<<<<<< local
+
+=======
+>>>>>>> other
 
 out:
 	return laziest;
