@@ -401,7 +401,7 @@ reprioritize(Proc *p)
 }
 
 int
-rqpairlock(Sched *src, Sched *dst)
+lockrqs(Sched *src, Sched *dst)
 {
 	if(canlock(src))
 		if(canlock(dst))
@@ -412,7 +412,7 @@ rqpairlock(Sched *src, Sched *dst)
 }
 
 int
-rqpairunlock(Sched *src, Sched *dst)
+unlockrqs(Sched *src, Sched *dst)
 {
 	return unlock(src) && unlock(dst);
 }
@@ -430,8 +430,7 @@ pushproc(Mach *target)
 	srcsch = &m->sch;
 	dstsch = &target->sch; 
 
-	while(!rqpairlock(srcsch, dstsch))
-		;
+	lock(srcsch);
 
 	/* Find a process to push */
 	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
@@ -454,14 +453,17 @@ pushproc(Mach *target)
 		}
 	}
 	
-	if(p == nil)
-		goto out;
+	if(p == nil) {
+		unlock(srcsch);
+		return;
+	}
 	
 	/* We have our proc, stick it in the target runqueue 
 	 * will have to:
 	 * force the target mach to schedule() 
 	 * reprioritize it? The next hzclock will do this in rebalance()
 	 */
+	lock(dstsch);
 	pri = reprioritize(p);
 	p->priority = pri;
 	dstrq = &dstsch->runq[pri];
@@ -478,11 +480,8 @@ pushproc(Mach *target)
 	dstrq->n++;
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
-//	print("\npushproc() from %d:%d to %d:%d pid %d\n", m->machno, m->load, target->machno, target->load, p->pid);
-	goto out;
 
-out:
-	rqpairunlock(srcsch, dstsch);
+	unlock(dstsch);
 }
 
 /*
