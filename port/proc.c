@@ -403,23 +403,6 @@ reprioritize(Proc *p)
 	return ratio;
 }
 
-int
-lockrqs(Sched *src, Sched *dst)
-{
-	if(canlock(src))
-		if(canlock(dst))
-			return 1;
-		unlock(dst);
-	unlock(src);
-	return 0;
-}
-
-int
-unlockrqs(Sched *src, Sched *dst)
-{
-	return unlock(src) && unlock(dst);
-}
-
 /* called in clock intr ctx */
 void
 pushproc(Mach *target)
@@ -731,18 +714,8 @@ loop:
 				goto found;
 		}
 
-<<<<<<< local
-		/* waste time or halt the CPU */
-
-		if(i > 1)
-			idlehands();
-		else
-			while(sch->runvec == 0)
-				monmwait((int*)&sch->runvec, 0);
-=======
 		while(monmwait((int*)&sch->runvec, 0) == 0)
 			;
->>>>>>> other
 
 		/* remember how much time we're here */
 		now = perfticks();
@@ -1857,10 +1830,6 @@ findmach(void)
 		if((mp = m->neighbors[i])->load < min_load)
 			laziest = mp;
 	}
-<<<<<<< local
-
-=======
->>>>>>> other
 
 out:
 	return laziest;
