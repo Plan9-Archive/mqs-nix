@@ -180,14 +180,13 @@ void
 loadbalance(void)
 {
 	int now;
-	static ulong lastloadbal;
-	struct Mach *target;
+	Mach *target;
 
 	now = fastticks(nil);
-	if((now >= (lastloadbal + BALANCE_FREQ))) {
-		loadbalancechecks++;
+
+	if(tickscmp(now, m->lastloadbal + BalanceFreq) >= 0) {
 		if((target = imbalance()) != nil) {
-			lastloadbal = now;
+			m->lastloadbal = now;
 			pushproc(target);	
 		}
 	}
@@ -197,26 +196,20 @@ Mach*
 imbalance(void)
 {
 	int i;
-	int total_nrun, total_nrdy;	
-	struct Mach *mp;
+	Mach *mp;
 
 	/* If this mach is idle, it shouldn't be doing any pushing */
 	if(m->sch.nrun + m->sch.nrdy < 1)
 		return nil;
 
-	for(i = 0; i < NDIM; i++) {
+	for(i = 0; i < Ndim; i++) {
 		mp = m->neighbors[i];
 
-		if(mp->load == 0) {
-			balance_neighbor_idle++;
+		if(mp->load == 0)
 			return mp; 
-		}
 
-		if(mp->runvec == 0 && mp->proc == nil) {
-			balance_neighbor_idle++;
+		if(mp->runvec == 0 && mp->proc == nil)
 			return mp;
-		}
-		
 	}
 
 	/* No neighbor met the threshold, assume are balanced */

@@ -696,8 +696,6 @@ loop:
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
 				continue;
-/*			if(p->mp == nil || p->mp == m
-					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) { */
 				splhi();
 				lock(sch);
 				/* dequeue the first (head) process of this rq */
@@ -1828,7 +1826,7 @@ findmach(void)
 	if(min_load == 0 || m->runvec == 0)
 		return laziest;
 
-	for(i = 0; i < NDIM; i++) {
+	for(i = 0; i < Ndim; i++) {
 		if((mp = m->neighbors[i])->load == 0)
 			laziest = mp;
 

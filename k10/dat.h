@@ -165,6 +165,7 @@ struct Mach
 	uintptr	stack;
 
 	Mach *neighbors[NDIM];
+	ulong lastloadbal;
 
 	int	apicno;
 	int	online;
