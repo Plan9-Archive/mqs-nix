@@ -666,8 +666,8 @@ enum
 
 enum
 {
-	Ndim = 2; /* # of neighbors (for load balancing */
-	BalanceFreq = HZ;
+	Ndim = 2, /* # of neighbors (for load balancing */
+	BalanceFreq = HZ,
 };
 
 struct Schedq
