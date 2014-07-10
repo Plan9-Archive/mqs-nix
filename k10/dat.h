@@ -164,7 +164,7 @@ struct Mach
 	Proc*	proc;			/* current process on this processor */
 	uintptr	stack;
 
-	Mach *neighbors[NDIM];
+	Mach *neighbors[Ndim];
 	ulong lastloadbal;
 
 	int	apicno;
