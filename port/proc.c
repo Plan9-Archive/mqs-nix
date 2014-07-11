@@ -417,7 +417,7 @@ pushproc(Mach *target)
 	dstsch = &target->sch; 
 
 	/* then we shouldn't be here in the first place, nothing to push */
-	if(m->runvec == 0)
+	if(m->sch.runvec == 0 || target == nil)
 		return;
 
 	lock(srcsch);
@@ -1823,14 +1823,14 @@ findmach(void)
 	min_load = m->load;
 	laziest = m;
 
-	if(min_load == 0 || m->runvec == 0)
+	if(min_load == 0 || m->sch.runvec == 0)
 		return laziest;
 
 	for(i = 0; i < Ndim; i++) {
 		if((mp = m->neighbors[i])->load == 0)
 			laziest = mp;
 
-		if((mp->runvec == 0))
+		if((mp->sch.runvec == 0))
 			laziest = mp;
 		/*if((mp = m->neighbors[i])->load < min_load)
 			laziest = mp;*/

@@ -208,7 +208,7 @@ imbalance(void)
 		if(mp->load == 0)
 			return mp; 
 
-		if(mp->runvec == 0 && mp->proc == nil)
+		if(mp->sch.runvec == 0 && mp->proc == nil)
 			return mp;
 	}
 

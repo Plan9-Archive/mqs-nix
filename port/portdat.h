@@ -690,6 +690,8 @@ struct Sched
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
 	uint	nrun;		/* to compute load */
+	ulong readytimeavg;
+	uint rqn;
 };
 
 typedef union Ar0 Ar0;
