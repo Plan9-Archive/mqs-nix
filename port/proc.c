@@ -420,7 +420,7 @@ pushproc(Mach *target)
 	if(m->sch.runvec == 0 || target == nil)
 		return;
 
-	lock(srcsch);
+	ilock(srcsch);
 
 	/* Find a process to push */
 	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
@@ -442,7 +442,7 @@ pushproc(Mach *target)
 			break;
 		}
 	}
-	unlock(srcsch);
+	iunlock(srcsch);
 	
 	if(p == nil)
 		return;
@@ -452,7 +452,7 @@ pushproc(Mach *target)
 	 * force the target mach to schedule() 
 	 * reprioritize it? The next hzclock will do this in rebalance()
 	 */
-	lock(dstsch);
+	ilock(dstsch);
 	pri = reprioritize(p);
 	p->priority = pri;
 	dstrq = &dstsch->runq[pri];
@@ -470,7 +470,7 @@ pushproc(Mach *target)
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
 
-	unlock(dstsch);
+	iunlock(dstsch);
 }
 
 /*
