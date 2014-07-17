@@ -426,8 +426,7 @@ pushproc(Mach *target)
 	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
 		if ((p = rq->head) == nil)
 			continue;
-		if(p->mp == nil || p->mp == m
-				|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+		if(p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
 			splhi();
 			/* dequeue the first (head) process of this rq */
 			if(p->rnext == nil)
