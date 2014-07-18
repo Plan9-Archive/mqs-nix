@@ -714,9 +714,11 @@ loop:
 				unlock(sch);
 				goto found;
 		}
-
-		while(monmwait((int*)&sch->runvec, 0) == 0)
-			;
+		if(i > 1)
+			idlehands();
+		else
+			while(sch->runvec == 0)
+				monmwait((int*)&sch->runvec, 0);
 
 		/* remember how much time we're here */
 		now = perfticks();
@@ -1832,8 +1834,8 @@ findmach(void)
 
 		if((mp->sch.runvec == 0))
 			laziest = mp;
-		/*if((mp = m->neighbors[i])->load < min_load)
-			laziest = mp;*/
+		if((mp = m->neighbors[i])->load < min_load)
+			laziest = mp;
 	}
 
 	return laziest;
