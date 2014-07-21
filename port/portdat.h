@@ -688,6 +688,9 @@ struct Sched
 	uint	runvec;
 	int	nmach;		/* # of cores with this color */
 	uint	nrun;		/* to compute load */
+
+	uvlong readytimeavg;
+	uint rqn;
 };
 
 typedef union Ar0 Ar0;
@@ -823,6 +826,7 @@ struct Proc
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
 	uvlong	readytime;	/* time process came ready, in fastticks*/
+	uvlong	queuetime;
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it

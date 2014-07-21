@@ -100,6 +100,8 @@ torusinit(void)
 	for(i = 0; i < sys->nmach; i++) {
 		for(j = 0; j < NDIM; j++)
 			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
+	sys->machptr[i]->sch.rqn = 1;
+	sys->machptr[i]->sch.readytimeavg = 0;
 	}
 }
 
@@ -132,6 +134,9 @@ main(void)
 	adrinit();
 	sysconfinit();
 	options();
+
+	sys->qn = 1;
+	sys->queuetimeavg = 0;
 
 	/*
 	 * Need something for initial delays
