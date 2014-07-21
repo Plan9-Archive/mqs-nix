@@ -233,6 +233,7 @@ sched(void)
 	up->state = Running;
 	up->mach = m;
 	m->proc = up;
+	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 	mmuswitch(up);
 
 	assert(up->wired == nil || up->wired == MACHP(m->machno));
@@ -565,6 +566,9 @@ schedready(Sched *sch, Proc *p)
 	pri = reprioritize(p);
 	p->priority = pri;
 	rq = &sch->runq[pri];
+	lock(sched_stats);
+	sched_stats.queuetimeavg = ((sched_stats.queuetimeavg * sched_stats.rqn) + (fastticks(nil) - p->queuetime)) / sched_stats->qn++; 
+	unlock(sched_stats);
 	p->readytime = fastticks(nil);
 	p->state = Ready;
 	queueproc(sch, rq, p);
@@ -589,6 +593,7 @@ ready(Proc *p)
 void
 forkready(Proc *p)
 {
+	p->queuetime = fastticks(nil);
 	if (p->wired != nil) {
 		/* procsched will return p->mp, which was set to 
 		 * p->wired upon proc creation 
@@ -706,9 +711,6 @@ loop:
 				sch->nrdy--;
 				if(p->state != Ready)
 					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-	if(sch->rqn == 0) 
-		sch->rqn = 1;
-	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 				unlock(sch);
 				goto found;
 		}

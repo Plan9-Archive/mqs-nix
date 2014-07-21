@@ -100,6 +100,8 @@ torusinit(void)
 	for(i = 0; i < sys->nmach; i++) {
 		for(j = 0; j < NDIM; j++)
 			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
+		sys->machptr[i]->rqn = 1;
+		sys->machptr[i]->readytimeavg = 0;
 	}
 }
 
@@ -114,10 +116,14 @@ void
 main(void)
 {
 	vlong hz;
+	struct Account sched_stats;
 
 	memset(edata, 0, end - edata);
 	cgapost(sizeof(uintptr)*8);
 	memset(m, 0, sizeof(Mach));
+
+	sched_stats.qn = 1;
+	sched_stats.queuetimeavg = 0;
 
 	m->machno = 0;
 	m->online = 1;

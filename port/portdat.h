@@ -693,6 +693,13 @@ struct Sched
 	uint 	rqn; 		/* to be used for calculating readytimeavg */
 };
 
+struct Account
+{
+	Lock;
+	uvlong queuetimeavg;
+	uint qn;
+};
+
 typedef union Ar0 Ar0;
 union Ar0 {
 	int	i;
@@ -826,6 +833,7 @@ struct Proc
 	uint	cpu;		/* cpu average */
 	ulong	lastupdate;
 	uvlong	readytime;	/* time process came ready, in fastticks*/
+	uvlong  queuetime;
 	ulong	movetime;	/* last time process switched processors */
 	int	preempted;	/* true if this process hasn't finished the interrupt
 				 *  that last preempted it
@@ -1088,3 +1096,4 @@ int balance_neighbor_idle;
 int balance_load_imbal;
 int loadbalancechecks;
 uvlong mountioavg;
+extern struct Account sched_stats;
