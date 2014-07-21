@@ -116,14 +116,13 @@ void
 main(void)
 {
 	vlong hz;
-	struct Account sched_stats;
 
 	memset(edata, 0, end - edata);
 	cgapost(sizeof(uintptr)*8);
 	memset(m, 0, sizeof(Mach));
 
-	sched_stats.qn = 1;
-	sched_stats.queuetimeavg = 0;
+	sys->qn = 1;
+	sys->queuetimeavg = 0;
 
 	m->machno = 0;
 	m->online = 1;

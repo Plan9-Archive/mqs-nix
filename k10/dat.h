@@ -225,6 +225,7 @@ struct Mach
  * the unions.
  */
 struct Sys {
+	Lock;
 	uchar	machstk[MACHSTKSZ];
 
 	PTE	pml4[PTSZ/sizeof(PTE)];		/* all this is unused; but size known to asm */
@@ -282,6 +283,9 @@ struct Sys {
 		Mach*	machptr[MACHMAX];
 		uchar	ptrpage[4*KiB];
 	};
+
+	uvlong queuetimeavg;
+	uint qn;
 
 	uchar	_57344_[2][4*KiB];		/* unused */
 };

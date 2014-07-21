@@ -566,9 +566,9 @@ schedready(Sched *sch, Proc *p)
 	pri = reprioritize(p);
 	p->priority = pri;
 	rq = &sch->runq[pri];
-	lock(sched_stats);
-	sched_stats.queuetimeavg = ((sched_stats.queuetimeavg * sched_stats.rqn) + (fastticks(nil) - p->queuetime)) / sched_stats->qn++; 
-	unlock(sched_stats);
+	lock(sys);
+	sys->queuetimeavg = ((sys->queuetimeavg * sys->qn) + (fastticks(nil) - p->queuetime)) / sys->qn++; 
+	unlock(sys);
 	p->readytime = fastticks(nil);
 	p->state = Ready;
 	queueproc(sch, rq, p);

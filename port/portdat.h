@@ -693,13 +693,6 @@ struct Sched
 	uint 	rqn; 		/* to be used for calculating readytimeavg */
 };
 
-struct Account
-{
-	Lock;
-	uvlong queuetimeavg;
-	uint qn;
-};
-
 typedef union Ar0 Ar0;
 union Ar0 {
 	int	i;
@@ -1096,4 +1089,3 @@ int balance_neighbor_idle;
 int balance_load_imbal;
 int loadbalancechecks;
 uvlong mountioavg;
-extern struct Account sched_stats;
