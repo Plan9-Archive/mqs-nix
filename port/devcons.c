@@ -660,7 +660,9 @@ enum{
 	Qpgrpid,
 	Qpid,
 	Qppid,
+	Qqueuetimeavg,
 	Qrandom,
+	Qreadytimeavg,
 	Qreboot,
 	Qswap,
 	Qsysname,
@@ -696,7 +698,9 @@ static Dirtab consdir[]={
 	"pgrpid",	{Qpgrpid},	NUMSIZE,	0444,
 	"pid",		{Qpid},		NUMSIZE,	0444,
 	"ppid",		{Qppid},	NUMSIZE,	0444,
+	"queuetimeavg",	{Qqueuetimeavg},	0,		0444,
 	"random",	{Qrandom},	0,		0444,
+	"readytimeavg",	{Qreadytimeavg},	0,		0666,
 	"reboot",	{Qreboot},	0,		0664,
 	"swap",		{Qswap},	0,		0664,
 	"sysname",	{Qsysname},	0,		0664,
@@ -935,6 +939,15 @@ consread(Chan *c, void *buf, long n, vlong off)
 	case Qppid:
 		return readnum(offset, buf, n, up->parentpid, NUMSIZE);
 
+	case Qreadytimeavg:
+		for(i = 0; i < sys->nmach; i++)
+			print("%llud\t%ud\n", sys->machptr[i]->sch.readytimeavg, sys->machptr[i]->sch.rqn);
+		return 0;
+	
+	case Qqueuetimeavg:
+		print("%llud\t%d\n", sys->queuetimeavg, sys->qn);
+		return 0;
+
 	case Qtime:
 		return readtime(offset, buf, n);
 
@@ -1159,6 +1172,16 @@ conswrite(Chan *c, void *va, long n, vlong off)
 		break;
 
 	case Qnull:
+		break;
+
+	case Qreadytimeavg:
+		for(i = 0; i < sys->nmach; i++) {
+			mp = sys->machptr[i];
+			lock(&mp->sch);
+			mp->sch.readytimeavg = 0;
+			mp->sch.rqn = 1;
+			unlock(&mp->sch);
+		}
 		break;
 
 	case Qreboot:

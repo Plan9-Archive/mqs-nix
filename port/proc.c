@@ -107,7 +107,6 @@ schedinit(void)		/* never returns */
 
 	m->inidle = 1;
 	ainc(&m->sch.nmach);
-
 	setlabel(&m->sched);
 	if(up) {
 		if((e = up->edf) && (e->flags & Admitted))
@@ -185,7 +184,6 @@ sched(void)
 			up? up->lastilock: nil,
 			(up && up->lastilock)? lockgetpc(up->lastilock): m->ilockpc,
 			getcallerpc(&p+2));
-
 	if(up){
 		/*
 		 * Delay the sched until the process gives up the locks
@@ -217,6 +215,9 @@ sched(void)
 		}
 		gotolabel(&m->sched);
 	}
+	lock(sys);
+	sys->schedn++;
+	unlock(sys);
 	m->inidle = 1;
 	p = runproc();
 	m->inidle = 0;
@@ -233,9 +234,7 @@ sched(void)
 	up->state = Running;
 	up->mach = m;
 	m->proc = up;
-	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 	mmuswitch(up);
-
 	assert(up->wired == nil || up->wired == MACHP(m->machno));
 	gotolabel(&up->sched);
 }
@@ -266,11 +265,18 @@ hzsched(void)
 	rebalance();
 
 	/* unless preempted, get to run for at least 100ms */
-	if(anyhigher()
-	|| (!m->proc->fixedpri && tickscmp(m->ticks, m->schedticks) >= 0 && anyready())){
+	if(anyhigher()) {
+		ainc(&sys->higher);
 		m->readied = nil;	/* avoid cooperative scheduling */
 		m->proc->delaysched++;
 	}
+	if (!m->proc->fixedpri && 
+		tickscmp(m->ticks, m->schedticks) >= 0 && anyready()) {
+		ainc(&sys->timeslice);
+		m->readied = nil;	/* avoid cooperative scheduling */
+		m->proc->delaysched++;
+	}
+	
 }
 
 /*
@@ -402,6 +408,9 @@ reprioritize(Proc *p)
 		panic("reprioritize");
 //iprint("pid %d cpu %d load %d fair %d pri %d\n", p->pid, p->cpu, load, fairshare, ratio);
 	return ratio;
+//	return p->basepri;
+//	print("%d ", p->basepri);
+//	return 13;
 }
 
 /* called in clock intr ctx */
@@ -413,7 +422,7 @@ pushproc(Mach *target)
 	Schedq *dstrq, *rq;
 	Proc *p;
 	int pri;
-
+	print("pushproc\n");
 	srcsch = &m->sch;
 	dstsch = &target->sch; 
 
@@ -477,8 +486,9 @@ static void
 queueproc(Sched *sch, Schedq *rq, Proc *p)
 {
 	int pri;
-
+	p->queuetime = fastticks(nil);
 	pri = rq - sch->runq;
+//	print("%d ", pri);
 	lock(sch);
 	p->priority = pri;
 	p->rnext = 0;
@@ -491,6 +501,9 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	sch->nrdy++;
 	sch->runvec |= 1<<pri;
 	unlock(sch);
+	lock(sys);
+	sys->queuetimeavg = ((sys->queuetimeavg * sys->qn) + (fastticks(nil) - p->queuetime)) / sys->qn++; 
+	unlock(sys);
 }
 
 /*
@@ -501,11 +514,11 @@ Proc*
 dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 {
 	Proc *l, *p;
-/*
+
 	if(!canlock(sch))
 		return nil;
-*/
-	lock(sch);
+
+//	lock(sch);
 
 	/*
 	 *  the queue may have changed before we locked runq,
@@ -559,16 +572,15 @@ schedready(Sched *sch, Proc *p)
 	 * BUG: if schedready is called to rebalance the scheduler,
 	 * for another core, then this is wrong.
 	 */
-	if(m->proc != p && (p->wired == nil || p->wired == MACHP(m->machno)))
+//	if(m->proc != p && (p->wired == nil || p->wired == MACHP(m->machno)))
+	if(up != p &&   p->state == Running &&  (p->wired == nil || p->wired == MACHP(m->machno)))
 		m->readied = p;	/* group scheduling */
 
 	updatecpu(p);
 	pri = reprioritize(p);
 	p->priority = pri;
 	rq = &sch->runq[pri];
-	lock(sys);
-	sys->queuetimeavg = ((sys->queuetimeavg * sys->qn) + (fastticks(nil) - p->queuetime)) / sys->qn++; 
-	unlock(sys);
+
 	p->readytime = fastticks(nil);
 	p->state = Ready;
 	queueproc(sch, rq, p);
@@ -590,20 +602,22 @@ ready(Proc *p)
 /*
  * choose least loaded runqueue for newly forked process
  */
-void
+Mach *
 forkready(Proc *p)
 {
+	Mach *laziest;
+
+	p->queuetime = fastticks(nil);
+//	schedready(procsched(p), p);
+
 	if (p->wired != nil) {
-		/* procsched will return p->mp, which was set to 
-		 * p->wired upon proc creation 
-		 */
 		 schedready(procsched(p), p);
 	} else{
-		Mach *laziest;
-
 		laziest = findmach();
 		schedready(&laziest->sch, p);
 	}
+	return laziest;
+
 }
 /*
  *  yield the processor and drop our priority
@@ -710,9 +724,8 @@ loop:
 				sch->nrdy--;
 				if(p->state != Ready)
 					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-	if(sch->rqn == 0) 
-		sch->rqn = 1;
-	sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
+	if (p->wired == nil)
+		sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
 				unlock(sch);
 				goto found;
 		}
@@ -1045,6 +1058,8 @@ wakeup(Rendez *r)
 {
 	Mpl pl;
 	Proc *p;
+
+//	ainc(&sys->wakeups);
 
 	pl = splhi();
 
@@ -1553,6 +1568,10 @@ scheddump(void)
 			iprint("\n");
 		}
 	}
+	print("sys->schedn: %d\n", sys->schedn);
+	print("sys->preempts: %d\n", sys->preempts);
+	print("sys->higher %d\n", sys->higher);
+	print("sys->timeslice %d\n", sys->timeslice);
 }
 
 void
@@ -1801,9 +1820,10 @@ accounttime(void)
 	if (m->machno != 0)
 		return;
 
-	now = perfticks();
-	if(now >= (lastloadavg+LoadCalcFreq)) {
-		lastloadavg = now;
+//	now = perfticks();
+//	now = fastticks(nil);
+//	if(now >= (lastloadavg+LoadCalcFreq)) {
+//		lastloadavg = now;
 		for(i = 0; i < sys->nmach; i++) {
 			mach = sys->machptr[i];
 			globalnrdy += mach->sch.nrdy;
@@ -1813,7 +1833,7 @@ accounttime(void)
 		globalnrun = 0;
 		n = (globalnrdy+n)*1000;
 		sys->load = (sys->load*(HZ-1)+n)/HZ;
-	}
+//	}
 }
 
 Mach* 
@@ -1822,19 +1842,16 @@ findmach(void)
 	int i, min_load = m->load;
 	Mach *mp, *laziest = m;
 
-	if(min_load == 0)
-		goto out;
+	if(min_load == 0 || m->sch.runvec == 0)
+		return m;
 
 	for(i = 0; i < NDIM; i++) {
-		if((mp = m->neighbors[i])->load == 0) {
-			laziest = mp;
-			goto out;
-		}
+		if((mp = m->neighbors[i])->load == 0 || mp->sch.runvec == 0) 
+			return mp;
 		if((mp = m->neighbors[i])->load < min_load)
-			laziest = mp;
+			laziest = sys->machptr[i];
 	}
 
-out:
 	return laziest;
 }
 

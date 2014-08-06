@@ -391,6 +391,7 @@ trap(Ureg* ureg)
 
 	/* delaysched set because we held a lock or because our quantum ended */
 	if(clockintr && up && up->nlocks == 0 && up->delaysched){
+		ainc(&sys->preempts);
 		sched();
 		splhi();
 	}

@@ -225,7 +225,6 @@ struct Mach
  * the unions.
  */
 struct Sys {
-	Lock;
 	uchar	machstk[MACHSTKSZ];
 
 	PTE	pml4[PTSZ/sizeof(PTE)];		/* all this is unused; but size known to asm */
@@ -275,10 +274,15 @@ struct Sys {
 			ulong	ticks;		/* of the clock since boot time */
 
 			uint 	load;  		/* global load */
+			uint	schedn;
+			uint wakeups;
+			int 	preempts;
+			int 	higher;
+			int 	timeslice;
 		};
 		uchar	syspage[4*KiB];
 	};
-
+	Lock;
 	union {
 		Mach*	machptr[MACHMAX];
 		uchar	ptrpage[4*KiB];

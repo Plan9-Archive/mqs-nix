@@ -310,7 +310,7 @@ void		rdb(void);
 int		readnum(ulong, char*, ulong, ulong, int);
 long		readstr(long, char*, long, char*);
 void		ready(Proc*);
-void		forkready(Proc *);
+Mach*		forkready(Proc *);
 void		reboot(void*, void*, usize);
 void		rebootcmd(int, char**);
 void		relocateseg(Segment*, uintptr);

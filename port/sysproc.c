@@ -20,7 +20,7 @@ sysrfork(Ar0* ar0, va_list list)
 	Pgrp *opg;
 	Rgrp *org;
 	Egrp *oeg;
-	Mach *wm;
+	Mach *wm, *mp;
 
 	/*
 	 * int rfork(int);
@@ -196,8 +196,10 @@ sysrfork(Ar0* ar0, va_list list)
 	if(wm != nil)
 		procwired(p, wm->machno);
 	p->color = up->color;
-	forkready(p);
-	sched();
+	mp = forkready(p);
+//	sched();
+	if(mp->proc != nil)
+		mp->proc->delaysched++;
 
 	ar0->i = pid;
 }
