@@ -184,10 +184,10 @@ loadbalance(void)
 	struct Mach *target;
 
 	now = fastticks(nil);
-	if((now >= (lastloadbal + BALANCE_FREQ))) {
-		loadbalancechecks++;
+	if(tickscmp(now, m->lastloadbal + BalanceFreq) >= 0) {
+		ainc(&loadbalancechecks);
 		if((target = imbalance()) != nil) {
-			lastloadbal = now;
+			m->lastloadbal = now;
 			pushproc(target);	
 		}
 	}
@@ -198,30 +198,23 @@ imbalance(void)
 {
 	int i;
 	int total_nrun, total_nrdy;	
-	struct Mach *mp;
+	struct Mach *mp, *laziest;
 
 	/* If this mach is idle, it shouldn't be doing any pushing */
-	if(m->load == 0 || (m->sch.nrun + m->sch.nrdy) == 0)
+	if(m->sch.nrun + m->sch.nrdy < Ndim)
 		return nil;
 
-	total_nrun = 0;
-	total_nrdy = 0;
-	for(i = 0; i < NDIM; i++) {
-		total_nrun += m->neighbors[i]->sch.nrun;
-		total_nrdy += m->neighbors[i]->sch.nrdy;
-	}
-
-	if(total_nrun + total_nrdy < NDIM + 1)
+	if(m->sch.runvec == 0)
 		return nil;
-	
-	for(i = 0; i < NDIM; i++) {
+
+	for(i = 0; i < Ndim; i++) {
 		mp = m->neighbors[i];
 
 		/* total_nrun + total_nrdy is > NDIM+self and a neighbor is idling */
-		if(mp->load == 0 || (mp->sch.nrdy + mp->sch.nrun == 0)) {
-			balance_neighbor_idle++;
+		if(mp->load == 0) // || (mp->sch.runvec == 0 && mp->proc == nil)) {
+			ainc(&balance_neighbor_idle);
 			return mp; 
-		}
+	//	}
 
 		/*  percentage difference formula is as follows:
 		 *  | Load A - Load B | / ((Load A + Load B)/2) x 100%
@@ -231,10 +224,10 @@ imbalance(void)
 		 *  to the conditional below.
 		 */
 		if((200 * abs(m->load - mp->load)) >= 
-				(IMBALANCE_THRES * (m->load + mp->load))) {
+				(ImbalanceThres * (m->load + mp->load))) {
 			if(m->load < mp->load) /* there is a imbalance but I'm the less loaded one */
 				return nil;
-			balance_load_imbal++;
+			ainc(&balance_load_imbal);
 			return mp;
 		}
 	}

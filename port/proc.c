@@ -215,9 +215,7 @@ sched(void)
 		}
 		gotolabel(&m->sched);
 	}
-	lock(sys);
-	sys->schedn++;
-	unlock(sys);
+	ainc(&sys->schedn);
 	m->inidle = 1;
 	p = runproc();
 	m->inidle = 0;
@@ -413,70 +411,15 @@ reprioritize(Proc *p)
 //	return 13;
 }
 
-/* called in clock intr ctx */
-void
-pushproc(Mach *target)
-{
-	Sched *srcsch;
-	Sched *dstsch;
-	Schedq *dstrq, *rq;
-	Proc *p;
-	int pri;
-	print("pushproc\n");
-	srcsch = &m->sch;
-	dstsch = &target->sch; 
-
-	lock(srcsch);
-
-	/* Find a process to push */
-	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
-		if ((p = rq->head) == nil)
-			continue;
-		if(p->mp == nil || p->mp == m
-				|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
-			splhi();
-			/* dequeue the first (head) process of this rq */
-			if(p->rnext == nil)
-				rq->tail = nil;
-			rq->head = p->rnext;
-			if(rq->head == nil)
-				srcsch->runvec &= ~(1<<(rq-srcsch->runq));
-			rq->n--;
-			srcsch->nrdy--;
-			if(p->state != Ready)
-				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-			break;
-		}
-	}
-	unlock(srcsch);
+int
+rqlock(Sched *srcsch, Sched *dstsch) {
 	
-	if(p == nil)
-		return;
-	
-	/* We have our proc, stick it in the target runqueue 
-	 * will have to:
-	 * force the target mach to schedule() 
-	 * reprioritize it? The next hzclock will do this in rebalance()
-	 */
-	lock(dstsch);
-	pri = reprioritize(p);
-	p->priority = pri;
-	dstrq = &dstsch->runq[pri];
-	p->readytime = fastticks(nil);
-	p->state = Ready;
-
-	/* guts of queueproc without the initial lock(sch) */
-	p->rnext = 0;
-	if(dstrq->tail)
-		dstrq->tail->rnext = p;
-	else
-		dstrq->head = p;
-	dstrq->tail = p;
-	dstrq->n++;
-	dstsch->nrdy++;
-	dstsch->runvec |= 1<<pri;
-
-	unlock(dstsch);
+	if(canlock(srcsch))
+		if(canlock(dstsch))
+			return 1;
+		else
+			unlock(srcsch);
+	return 0;
 }
 
 /*
@@ -489,7 +432,7 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	p->queuetime = fastticks(nil);
 	pri = rq - sch->runq;
 //	print("%d ", pri);
-	lock(sch);
+	ilock(sch);
 	p->priority = pri;
 	p->rnext = 0;
 	if(rq->tail)
@@ -500,10 +443,10 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	rq->n++;
 	sch->nrdy++;
 	sch->runvec |= 1<<pri;
-	unlock(sch);
-	lock(sys);
+	iunlock(sch);
+/*	lock(sys);
 	sys->queuetimeavg = ((sys->queuetimeavg * sys->qn) + (fastticks(nil) - p->queuetime)) / sys->qn++; 
-	unlock(sys);
+	unlock(sys); */
 }
 
 /*
@@ -515,11 +458,10 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 {
 	Proc *l, *p;
 
-	if(!canlock(sch))
-		return nil;
-
-//	lock(sch);
-
+/*	if(!canlock(sch))
+		return nil; 
+*/
+	ilock(sch);
 	/*
 	 *  the queue may have changed before we locked runq,
 	 *  refind the target process.
@@ -535,9 +477,10 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 	 *  p->mach == nil only when process state is saved
 	 */
 	if(p == nil || !procsaved(p)){
-		unlock(sch);
+		iunlock(sch);
 		return nil;
 	}
+
 	if(p->rnext == nil)
 		rq->tail = l;
 	if(l)
@@ -551,10 +494,108 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 	if(p->state != Ready)
 		iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 
-	unlock(sch);
+	iunlock(sch);
 	return p;
 }
 
+/* called in clock intr ctx */
+void
+pushproc(Mach *target)
+{
+	Sched *srcsch;
+	Sched *dstsch;
+	Schedq *dstrq, *rq;
+	Proc *p;
+	int pri;
+	int found = 0;
+
+	srcsch = &m->sch;
+	dstsch = &target->sch; 
+	Mpl pl;
+	
+/*
+	if(!rqlock(srcsch, dstsch))
+		return;
+*/
+
+
+	if(srcsch->runvec == 0 || srcsch->nrdy < 1) {
+		return;
+	}
+
+	ilock(srcsch);
+
+//	pl = splhi();
+//	while(!canlock(srcsch))
+//		;
+
+	/* Find a process to push */
+	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
+		if ((p = rq->head) == nil)
+			continue;
+		
+		if(p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
+	//		splhi();
+			/* dequeue the first (head) process of this rq */
+			if(p->state != Ready)
+				continue;
+
+			if(p->rnext == nil)
+				rq->tail = nil;
+			rq->head = p->rnext;
+			if(rq->head == nil)
+				srcsch->runvec &= ~(1<<(rq-srcsch->runq));
+			rq->n--;
+			srcsch->nrdy--;
+			if(p->state != Ready)
+				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
+			found = 1;
+			break;
+		//	p = dequeueproc(srcsch, rq, p);
+		}
+		
+	}
+	iunlock(srcsch);
+	
+	if(!found || p == nil || p->state != Ready) {
+	//	unlock(dstsch);
+	//	print("pushproc: couldn't grab a proc\n");
+	//	splx(pl);
+		return;
+	}
+//	iprint("pushproc: %s %d %s machno %d -> %d\n", p->text, p->pid, statename[p->state], m->machno, target->machno);
+	/* We have our proc, stick it in the target runqueue 
+	 * will have to:
+	 * force the target mach to schedule() 
+	 * reprioritize it? The next hzclock will do this in rebalance()
+	 */
+	ilock(dstsch);
+//	while(!canlock(dstsch))
+//		;
+//	print("locked dstsch\n");
+	pri = reprioritize(p);
+	p->priority = pri;
+	dstrq = &dstsch->runq[pri];
+	p->readytime = fastticks(nil);
+	p->state = Ready;
+
+	/* guts of queueproc without the initial lock(sch) */
+	
+	p->rnext = 0;
+	if(dstrq->tail)
+		dstrq->tail->rnext = p;
+	else
+		dstrq->head = p;
+	dstrq->tail = p;
+	dstrq->n++;
+	dstsch->nrdy++;
+	dstsch->runvec |= 1<<pri;
+	
+
+	iunlock(dstsch);
+//	splx(pl);
+//	queueproc(dstsch, dstrq, p);
+}
 static void
 schedready(Sched *sch, Proc *p)
 {
@@ -664,11 +705,11 @@ another:
 		updatecpu(p);
 		npri = reprioritize(p);
 		if(npri != pri){
-			pl = splhi();
+		//	pl = splhi();
 			p = dequeueproc(sch, rq, p);
 			if(p != nil)
 				queueproc(sch, &sch->runq[npri], p);
-			splx(pl);
+		//	splx(pl);
 			goto another;
 		}
 	}
@@ -687,7 +728,7 @@ runproc(void)
 	Sched *sch;
 	Proc *p, *l;
 	uvlong start, now;
-	int i, skip;
+	int i, j, skip;
 
 	skip = 0;
 	start = perfticks();
@@ -706,29 +747,37 @@ runproc(void)
 
 loop:
 	spllo();
-	for(i = 0; ; i++){
+	for(i = 0; ; i++){ 
+	
+		ilock(sch);
+
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
 				continue;
-/*			if(p->mp == nil || p->mp == m
-					|| p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) { */
-				splhi();
-				lock(sch);
-				/* dequeue the first (head) process of this rq */
-				if(p->rnext == nil)
-					rq->tail = nil;
-				rq->head = p->rnext;
-				if(rq->head == nil)
-					sch->runvec &= ~(1<<(rq-sch->runq));
-				rq->n--;
-				sch->nrdy--;
-				if(p->state != Ready)
-					iprint("dequeueproc %s %d %s\n", p->text, p->pid, statename[p->state]);
-	if (p->wired == nil)
-		sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
-				unlock(sch);
-				goto found;
+		//	splhi();
+		//	ilock(sch);
+			/* dequeue the first (head) process of this rq */
+			if(p->state != Ready)
+				continue;
+
+			if(p->rnext == nil)
+				rq->tail = nil;
+			rq->head = p->rnext;
+			if(rq->head == nil)
+				sch->runvec &= ~(1<<(rq-sch->runq));
+			rq->n--;
+			sch->nrdy--;
+			if(p->state != Ready)
+				iprint("runproc: %s %d %s machno %d\n", p->text, p->pid, statename[p->state], m->machno);
+			if (p->wired == nil)
+				sch->readytimeavg = ((sch->readytimeavg * sch->rqn) + (fastticks(nil) - p->readytime)) / sch->rqn++; 
+			
+			iunlock(sch);
+			
+			goto found;
 		}
+
+		iunlock(sch);
 
 		while(monmwait((int*)&sch->runvec, 0) == 0)
 			;
@@ -740,7 +789,6 @@ loop:
 	}
 
 skipsched:
-	splhi();
 	p = dequeueproc(sch, rq, p);
 	if(p == nil){
 		if(skip){
@@ -751,8 +799,8 @@ skipsched:
 		goto loop;
 	}
 
-//stolen:
 found:
+	splhi();
 	p->state = Scheding;
 	p->mp = m;
 
@@ -772,9 +820,9 @@ canpage(Proc *p)
 	Sched *sch;
 	Mpl pl;
 
-	pl = splhi();
+//	pl = splhi();
 	sch = procsched(p);
-	lock(sch);
+	ilock(sch);
 	/* Only reliable way to see if we are Running */
 	if(procsaved(p)){
 		p->newtlb = 1;
@@ -782,8 +830,8 @@ canpage(Proc *p)
 	}
 	else
 		ok = 0;
-	unlock(sch);
-	splx(pl);
+	iunlock(sch);
+//	splx(pl);
 
 	return ok;
 }
@@ -1845,8 +1893,8 @@ findmach(void)
 	if(min_load == 0 || m->sch.runvec == 0)
 		return m;
 
-	for(i = 0; i < NDIM; i++) {
-		if((mp = m->neighbors[i])->load == 0 || mp->sch.runvec == 0) 
+	for(i = 0; i < Ndim; i++) {
+		if((mp = m->neighbors[i])->load == 0) //|| mp->sch.runvec == 0) 
 			return mp;
 		if((mp = m->neighbors[i])->load < min_load)
 			laziest = sys->machptr[i];

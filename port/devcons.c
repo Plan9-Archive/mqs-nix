@@ -953,8 +953,10 @@ consread(Chan *c, void *buf, long n, vlong off)
 
 	case Qtorus:
 		for(i = 0; i < sys->nmach; i++) {
-			print("%d: %d, %d\n", sys->machptr[i]->machno, 
-					sys->machptr[i]->neighbors[0]->machno, sys->machptr[i]->neighbors[1]->machno);
+			print("%d: ", sys->machptr[i]->machno);
+			for(k = 0; k < Ndim; k++)
+				print("%d ", sys->machptr[i]->neighbors[k]->machno);
+			print("\n");
 		}
 		return 0;
 

@@ -164,7 +164,7 @@ struct Mach
 	Proc*	proc;			/* current process on this processor */
 	uintptr	stack;
 
-	Mach *neighbors[NDIM];
+	Mach *neighbors[Ndim];
 
 	int	apicno;
 	int	online;
@@ -200,6 +200,8 @@ struct Mach
 
 	int	inidle;			/* profiling */
 	int	lastintr;
+
+	uvlong lastloadbal;
 
 	Lock	apictimerlock;
 	uvlong	cyclefreq;		/* Frequency of user readable cycle counter */
@@ -274,7 +276,7 @@ struct Sys {
 			ulong	ticks;		/* of the clock since boot time */
 
 			uint 	load;  		/* global load */
-			uint	schedn;
+			int	schedn;
 			uint wakeups;
 			int 	preempts;
 			int 	higher;

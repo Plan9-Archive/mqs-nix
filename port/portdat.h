@@ -664,9 +664,12 @@ enum
 	PriRoot		= 13,		/* base priority for root processes */
 };
 
-#define NDIM 		2 	/* # of neighbors (for load balancing */
-#define BALANCE_FREQ HZ
-#define IMBALANCE_THRES 25 /* % difference */
+enum
+{
+	Ndim = 3,			 /* # of neighbors */
+	BalanceFreq = HZ, 
+	ImbalanceThres = 25, /* % difference */
+};
 
 struct Schedq
 {

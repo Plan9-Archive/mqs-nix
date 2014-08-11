@@ -198,7 +198,7 @@ sysrfork(Ar0* ar0, va_list list)
 	p->color = up->color;
 	mp = forkready(p);
 //	sched();
-	if(mp->proc != nil)
+	if(mp != nil && mp->proc != nil)
 		mp->proc->delaysched++;
 
 	ar0->i = pid;

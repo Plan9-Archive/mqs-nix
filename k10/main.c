@@ -98,7 +98,7 @@ torusinit(void)
 {
 	int i,j;
 	for(i = 0; i < sys->nmach; i++) {
-		for(j = 0; j < NDIM; j++)
+		for(j = 0; j < Ndim; j++)
 			sys->machptr[i]->neighbors[j] = sys->machptr[(i+j+1)%sys->nmach];
 	sys->machptr[i]->sch.rqn = 1;
 	sys->machptr[i]->sch.readytimeavg = 0;
