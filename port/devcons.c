@@ -835,7 +835,6 @@ consread(Chan *c, void *buf, long n, vlong off)
 	char *b, *bp, ch, *s, *p, *e, tmp[512];
 	int i, k, id, send, r;
 	long offset;
-	extern int schedsteals;
 
 	if(n <= 0)
 		return n;
@@ -1077,7 +1076,6 @@ consread(Chan *c, void *buf, long n, vlong off)
 		}
 		p = s;	
 		e = s +READSTR;
-		p = seprint(p, e, "steal %d\n", schedsteals);
 		p = seprint(p, e, "locks %llud\n", lockstats.locks);
 		p = seprint(p, e, "glare %llud\n", lockstats.glare);
 		p = seprint(p, e, "inglare %llud\n", lockstats.inglare);
@@ -1107,7 +1105,6 @@ conswrite(Chan *c, void *va, long n, vlong off)
 	ulong offset;
 	Cmdbuf *cb;
 	Cmdtab *ct;
-	extern int schedsteals;
 	a = va;
 	offset = off;
 
@@ -1245,12 +1242,6 @@ conswrite(Chan *c, void *va, long n, vlong off)
 		buf[n] = 0;
 		if(n > 0 && buf[n-1] == '\n')
 			buf[n-1] = 0;
-		if(strcmp(buf, "steal") == 0)
-			schedsteals = 1;
-		else if(strcmp(buf, "nosteal") == 0)
-			schedsteals = 0;
-		else
-			error(Ebadctl);
 		break;
 	default:
 		print("conswrite: %#llux\n", c->qid.path);
