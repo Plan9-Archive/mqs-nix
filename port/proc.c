@@ -15,23 +15,12 @@ enum
 	Shortburst	= HZ,		/* 1 second */
 	Migratedelay	= 500*1000,	/* 500µs — very little affinity */
 
-	/*
-	 * number of schedulers used.
-	 * 1 uses just one, which is the behavior of Plan 9.
-	 */
-	Nsched		= 4,
 	LoadCalcFreq    = HZ*3, /* How often to calculate global load */
 };
 Ref	noteidalloc;
 
 static	Ref	pidalloc;
 static	uvlong	affdelay;
-
-/*
- * Many multiprocessor machines are NUMA
- * try to use a different scheduler per color
- */
-//Sched run[Nsched];
 
 struct Procalloc procalloc;
 
@@ -45,9 +34,6 @@ static void updatecpu(Proc*);
 
 static void rebalance(void);
 static Mach *findmach(void);
-
-int schedsteals = 1;
-ulong lastloadavg;
 
 char *statename[Nprocstate] =
 {	/* BUG: generate automatically */
@@ -66,21 +52,6 @@ char *statename[Nprocstate] =
 	"Waitrelease",
 	"Semdown",
 };
-
-/*
-void
-setmachsched(Mach *mp)
-{
-	int color;
-
-	color = machcolor(mp);
-	if(color < 0){
-		iprint("mach%d: unknown color\n", mp->machno);
-		color = 0;
-	}
-//	mp->sch = &run[color%Nsched];
-}
-*/
 
 Sched*
 procsched(Proc *p)
@@ -406,9 +377,6 @@ reprioritize(Proc *p)
 		panic("reprioritize");
 //iprint("pid %d cpu %d load %d fair %d pri %d\n", p->pid, p->cpu, load, fairshare, ratio);
 	return ratio;
-//	return p->basepri;
-//	print("%d ", p->basepri);
-//	return 13;
 }
 
 int
@@ -429,9 +397,7 @@ static void
 queueproc(Sched *sch, Schedq *rq, Proc *p)
 {
 	int pri;
-	p->queuetime = fastticks(nil);
 	pri = rq - sch->runq;
-//	print("%d ", pri);
 	ilock(sch);
 	p->priority = pri;
 	p->rnext = 0;
@@ -444,9 +410,6 @@ queueproc(Sched *sch, Schedq *rq, Proc *p)
 	sch->nrdy++;
 	sch->runvec |= 1<<pri;
 	iunlock(sch);
-/*	lock(sys);
-	sys->queuetimeavg = ((sys->queuetimeavg * sys->qn) + (fastticks(nil) - p->queuetime)) / sys->qn++; 
-	unlock(sys); */
 }
 
 /*
@@ -458,9 +421,6 @@ dequeueproc(Sched *sch, Schedq *rq, Proc *tp)
 {
 	Proc *l, *p;
 
-/*	if(!canlock(sch))
-		return nil; 
-*/
 	ilock(sch);
 	/*
 	 *  the queue may have changed before we locked runq,
@@ -513,21 +473,10 @@ pushproc(Mach *target)
 	dstsch = &target->sch; 
 	Mpl pl;
 	
-/*
-	if(!rqlock(srcsch, dstsch))
+	if(srcsch->runvec == 0 || srcsch->nrdy < 1)
 		return;
-*/
-
-
-	if(srcsch->runvec == 0 || srcsch->nrdy < 1) {
-		return;
-	}
 
 	ilock(srcsch);
-
-//	pl = splhi();
-//	while(!canlock(srcsch))
-//		;
 
 	/* Find a process to push */
 	for(rq = &srcsch->runq[Nrq-1]; rq >= srcsch->runq; rq--){
@@ -535,7 +484,6 @@ pushproc(Mach *target)
 			continue;
 		
 		if(p->wired == nil && fastticks2ns(fastticks(nil) - p->readytime) >= Migratedelay) {
-	//		splhi();
 			/* dequeue the first (head) process of this rq */
 			if(p->state != Ready)
 				continue;
@@ -551,28 +499,21 @@ pushproc(Mach *target)
 				iprint("pushproc %s %d %s\n", p->text, p->pid, statename[p->state]);
 			found = 1;
 			break;
-		//	p = dequeueproc(srcsch, rq, p);
 		}
 		
 	}
 	iunlock(srcsch);
 	
-	if(!found || p == nil || p->state != Ready) {
-	//	unlock(dstsch);
-	//	print("pushproc: couldn't grab a proc\n");
-	//	splx(pl);
+	if(!found || p == nil || p->state != Ready)
 		return;
-	}
 //	iprint("pushproc: %s %d %s machno %d -> %d\n", p->text, p->pid, statename[p->state], m->machno, target->machno);
+
 	/* We have our proc, stick it in the target runqueue 
 	 * will have to:
 	 * force the target mach to schedule() 
 	 * reprioritize it? The next hzclock will do this in rebalance()
 	 */
 	ilock(dstsch);
-//	while(!canlock(dstsch))
-//		;
-//	print("locked dstsch\n");
 	pri = reprioritize(p);
 	p->priority = pri;
 	dstrq = &dstsch->runq[pri];
@@ -590,12 +531,9 @@ pushproc(Mach *target)
 	dstrq->n++;
 	dstsch->nrdy++;
 	dstsch->runvec |= 1<<pri;
-	
-
 	iunlock(dstsch);
-//	splx(pl);
-//	queueproc(dstsch, dstrq, p);
 }
+
 static void
 schedready(Sched *sch, Proc *p)
 {
@@ -648,12 +586,9 @@ forkready(Proc *p)
 {
 	Mach *laziest;
 
-	p->queuetime = fastticks(nil);
-//	schedready(procsched(p), p);
-
 	if (p->wired != nil) {
 		 schedready(procsched(p), p);
-	} else{
+	} else {
 		laziest = findmach();
 		schedready(&laziest->sch, p);
 	}
@@ -705,11 +640,9 @@ another:
 		updatecpu(p);
 		npri = reprioritize(p);
 		if(npri != pri){
-		//	pl = splhi();
 			p = dequeueproc(sch, rq, p);
 			if(p != nil)
 				queueproc(sch, &sch->runq[npri], p);
-		//	splx(pl);
 			goto another;
 		}
 	}
@@ -754,8 +687,6 @@ loop:
 		for(rq = &sch->runq[Nrq-1]; rq >= sch->runq; rq--){
 			if ((p = rq->head) == nil)
 				continue;
-		//	splhi();
-		//	ilock(sch);
 			/* dequeue the first (head) process of this rq */
 			if(p->state != Ready)
 				continue;
@@ -820,7 +751,6 @@ canpage(Proc *p)
 	Sched *sch;
 	Mpl pl;
 
-//	pl = splhi();
 	sch = procsched(p);
 	ilock(sch);
 	/* Only reliable way to see if we are Running */
@@ -831,7 +761,6 @@ canpage(Proc *p)
 	else
 		ok = 0;
 	iunlock(sch);
-//	splx(pl);
 
 	return ok;
 }
@@ -1106,8 +1035,6 @@ wakeup(Rendez *r)
 {
 	Mpl pl;
 	Proc *p;
-
-//	ainc(&sys->wakeups);
 
 	pl = splhi();
 
@@ -1564,11 +1491,9 @@ schedstats(char *s, char *e)
 {
 	int n;
 	Sched *sch;
-/*
-	for(n = 0; n < Nsched; n++){
-		sch = run+n;
-		if(sch->nmach == 0)
-			continue;
+
+	for(n = 0; n < sys->nmach; n++){
+		sch = &m->sch;
 		s = seprint(s, e, "sch%d: nrdy	%d\n", n, sch->nrdy);
 		s = seprint(s, e, "sch%d: delayed	%d\n", n, sch->delayedscheds);
 		s = seprint(s, e, "sch%d: preempt	%d\n", n, sch->preempts);
@@ -1579,7 +1504,7 @@ schedstats(char *s, char *e)
 		s = seprint(s, e, "sch%d: nmach	%d\n", n, sch->nmach);
 		s = seprint(s, e, "sch%d: nrun	%d\n", n, sch->nrun);
 	}
-*/
+
 	return s;
 }
 
@@ -1868,20 +1793,15 @@ accounttime(void)
 	if (m->machno != 0)
 		return;
 
-//	now = perfticks();
-//	now = fastticks(nil);
-//	if(now >= (lastloadavg+LoadCalcFreq)) {
-//		lastloadavg = now;
-		for(i = 0; i < sys->nmach; i++) {
-			mach = sys->machptr[i];
-			globalnrdy += mach->sch.nrdy;
-			globalnrun += mach->sch.nrun;
-		}
-		n = globalnrun;
-		globalnrun = 0;
-		n = (globalnrdy+n)*1000;
-		sys->load = (sys->load*(HZ-1)+n)/HZ;
-//	}
+	for(i = 0; i < sys->nmach; i++) {
+		mach = sys->machptr[i];
+		globalnrdy += mach->sch.nrdy;
+		globalnrun += mach->sch.nrun;
+	}
+	n = globalnrun;
+	globalnrun = 0;
+	n = (globalnrdy+n)*1000;
+	sys->load = (sys->load*(HZ-1)+n)/HZ;
 }
 
 Mach* 
