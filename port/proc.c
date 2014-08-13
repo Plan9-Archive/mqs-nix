@@ -234,18 +234,11 @@ hzsched(void)
 	rebalance();
 
 	/* unless preempted, get to run for at least 100ms */
-	if(anyhigher()) {
-		ainc(&sys->higher);
+	if(anyhigher() || (!m->proc->fixedpri &&
+				tickscmp(m->ticks, m->schedticks) >= 0 && anyready())) {
 		m->readied = nil;	/* avoid cooperative scheduling */
 		m->proc->delaysched++;
 	}
-	if (!m->proc->fixedpri && 
-		tickscmp(m->ticks, m->schedticks) >= 0 && anyready()) {
-		ainc(&sys->timeslice);
-		m->readied = nil;	/* avoid cooperative scheduling */
-		m->proc->delaysched++;
-	}
-	
 }
 
 /*
@@ -1543,8 +1536,6 @@ scheddump(void)
 	}
 	print("sys->schedn: %d\n", sys->schedn);
 	print("sys->preempts: %d\n", sys->preempts);
-	print("sys->higher %d\n", sys->higher);
-	print("sys->timeslice %d\n", sys->timeslice);
 }
 
 void

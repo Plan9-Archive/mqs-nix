@@ -277,10 +277,7 @@ struct Sys {
 
 			uint 	load;  		/* global load */
 			int	schedn;
-			uint wakeups;
 			int 	preempts;
-			int 	higher;
-			int 	timeslice;
 		};
 		uchar	syspage[4*KiB];
 	};
