@@ -148,6 +148,8 @@ sched(void)
 	Sched *sch;
 
 	sch = &m->sch;
+	if(m->forcesched)
+		m->forcesched = 0;
 	if(m->ilockdepth)
 		panic("mach%d: ilockdepth %d, last lock %#p at %#p, sched called from %#p",
 			m->machno,

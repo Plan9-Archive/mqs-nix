@@ -211,6 +211,8 @@ struct Mach
 
 	Sched	sch;			/* scheduler used */
 
+	uint forcesched;	
+
 	MFPU;
 };
 
