@@ -201,7 +201,7 @@ imbalance(void)
 	struct Mach *mp, *laziest;
 
 	/* If this mach is idle, it shouldn't be doing any pushing */
-	if(m->sch.nrun + m->sch.nrdy < Ndim)
+	if(m->sch.nrun + m->sch.nrdy < 1)
 		return nil;
 
 	if(m->sch.runvec == 0)
