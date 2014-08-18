@@ -17,7 +17,6 @@ typedef struct Log	Log;
 typedef struct Logflag	Logflag;
 typedef struct Lockstats	Lockstats;
 typedef struct LockEntry	LockEntry;
-typedef struct Migrateinfo Migrateinfo;
 typedef struct Mhead	Mhead;
 typedef struct Mnt	Mnt;
 typedef struct Mntcache	Mntcache;
@@ -706,14 +705,6 @@ union Ar0 {
 	vlong	vl;
 };
 
-/* For purely debugging purposes only. Remove in final revision */
-struct Migrateinfo
-{
-	int machno;
-	int dstload;
-	int srcload;
-};
-
 struct Proc
 {
 	Label	sched;		/* known to l.s */
@@ -818,7 +809,6 @@ struct Proc
 	Lock	*lastlock;	/* debugging */
 	Lock	*lastilock;	/* debugging */
 
-	Migrateinfo 	migrations[5]; /* the last 5 maches that this proc has been on */
 	Mach	*wired;
 	Mach	*mp;		/* machine this process last ran on */
 	int	nlocks;		/* number of locks held by proc */
