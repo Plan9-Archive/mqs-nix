@@ -196,10 +196,10 @@ sysrfork(Ar0* ar0, va_list list)
 	if(wm != nil)
 		procwired(p, wm->machno);
 	p->color = up->color;
-
 	mp = forkready(p);
-	if(mp != nil && mp->forcesched == 0)
-		mp->forcesched++;
+//	sched();
+	if(mp != nil && mp->proc != nil)
+		mp->proc->delaysched++;
 
 	ar0->i = pid;
 }
